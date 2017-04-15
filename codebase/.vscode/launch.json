@@ -1,0 +1,20 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ashutosh",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/rbf/rbftest",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "stopAtEntry": false,
+            "externalConsole": true,
+            "cwd": "${workspaceRoot}",
+            "logging": {
+                "moduleLoad": false,
+                "trace": true
+            }
+        }
+    ]
+}
