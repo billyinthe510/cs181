@@ -51,7 +51,7 @@ RC PagedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
     {
         return -1;
     }
-    FILE *FP = fopen(fileName.c_str(), "r + w"); // read/update and write/update on
+    FILE *FP = fopen(fileName.c_str(), "rb+, wb+"); // read/update and write/update on
     fileHandle.setFP(FP);
     return 0;
     /*struct stat stFileInfo;
@@ -119,9 +119,14 @@ RC FileHandle::writePage(PageNum pageNum, const void *data)
     if (FP != NULL)
     {
         fseek(FP, pageNum * PAGE_SIZE, SEEK_SET); // beginning of page
-        fwrite(data, 1, PAGE_SIZE, FP);
-        writePageCounter++;
-        return 0;
+        if (fwrite(data, 1, PAGE_SIZE, FP) == PAGE_SIZE)
+        {
+            fflush(FP);
+            writePageCounter++;
+            return 0;
+        }
+        else
+            return -1;
     }
     else
         return -1;
