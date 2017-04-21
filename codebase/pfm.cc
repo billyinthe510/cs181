@@ -119,14 +119,11 @@ RC FileHandle::writePage(PageNum pageNum, const void *data)
     if (FP != NULL)
     {
         fseek(FP, pageNum * PAGE_SIZE, SEEK_SET); // beginning of page
-        if (fwrite(data, 1, PAGE_SIZE, FP) == PAGE_SIZE)
-        {
-            fflush(FP);
-            writePageCounter++;
-            return 0;
-        }
-        else
-            return -1;
+        if(fwrite(data, 1, PAGE_SIZE, FP) == PAGE_SIZE)
+           //cout << "HELLO";
+           fflush(FP);
+        writePageCounter++;
+        return 0;
     }
     else
         return -1;
@@ -139,7 +136,9 @@ RC FileHandle::appendPage(const void *data)
     if (FP != NULL)
     {
         fseek(FP, 0, SEEK_END);
-        fwrite(data, 1, PAGE_SIZE, FP);
+        if(fwrite(data, 1, PAGE_SIZE, FP) == PAGE_SIZE)
+           //cout << "YELLOW";
+           fflush(FP);
         pageCounter++;
         appendPageCounter++;
         return 0;
