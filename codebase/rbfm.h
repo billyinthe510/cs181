@@ -16,11 +16,12 @@ typedef struct
   unsigned slotNum;    // slot number in the page
 } RID;
 //Record header
-typedef struct
-{
-  unsigned offset;    // offset to find record
+typedef struct SlotDr SlotDr;
+struct SlotDr {
+  unsigned offset = -1;    // offset to find record
   unsigned length;    // slot number in the page
-} SlotDr;
+  SlotDr *next = NULL; //next directory
+}; 
 
 
 // Attribute
