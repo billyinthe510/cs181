@@ -45,214 +45,258 @@ RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
 }
 
 RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, RID &rid) {
-    void *buffer = malloc(PAGE_SIZE);
-    void *work = malloc(100);
-    rid.pageNum = fileHandle.getNumberOfPages();
-    cout << "PAGE NUM " << rid.pageNum;
-    fileHandle.readPage(rid.pageNum, buffer);
-    int size = ceil((double) recordDescriptor.size() / 8);
-    //printRecord(recordDescriptor, work + size);
-    for(unsigned i = 0; i < recordDescriptor.size(); i++) {
-        switch(recordDescriptor[i].type) {
-            case TypeInt: {
-                
-                memcpy(work + size, data + size, sizeof(int));
-                size += sizeof (int);
-                cout << size << "\n";
-                break;
-            }
-            case TypeReal: {
-                 
-                 memcpy(work + size, data + size, sizeof(float));
-                 size += sizeof (float);
-                 cout << size << "\n";
-                 break;
-            }
-            case TypeVarChar: {
-                //data = (buffer[directoryOff + (sizeof int)]
-                void *length = malloc(sizeof (int));
-                memcpy(length, data + size, sizeof (int));
-                memcpy(work + size,length, sizeof (int));
-                size = size + sizeof (int);
-                cout << "Length " << *(int*)length;
-                cout << size << "\n";
-                memcpy(work + size, data + size, *(int*)length);
-                size += *(int*)length;
-                free(length);	 
-                break;
-            }
-        }
-    }
-    printRecord(recordDescriptor, data);
-    int slotOffset = 0;
-    int recordOffset = 0;
-    SlotDr *directoryOff = new SlotDr();
-    SlotDr *test = new SlotDr();
-    //test->offset = 0;
-    //test->length = 0;
-    //cout << sizeof(SlotDr) << "\n";
-    memcpy(directoryOff, buffer + PAGE_SIZE - sizeof(SlotDr), sizeof(SlotDr));
-    /*for(directoryOff; directoryOff->next != NULL; directoryOff = directoryOff->next) {
-         slotOffset++;
-         cout << "\nhello\n" << "\nOFFSET: " << directoryOff->offset; ;
-         recordOffset += directoryOff->offset;
-         
-    }*/
-    int newSlot = slotOffset * sizeof(SlotDr) + sizeof(SlotDr);
-    rid.slotNum = slotOffset;
-    SlotDr *directory = (SlotDr *)malloc(sizeof(SlotDr));
-    directory->length = size;
-    directory->offset = recordOffset;
-    int freeSpace = PAGE_SIZE - recordOffset + (slotOffset * sizeof(SlotDr));
-    cout << "FREE SPACE " << freeSpace << "\n Directory offset " << directory->offset;
-    cout << "\n Slot Directory " << directory->length <<"\n";
-    //memcpy(buffer + PAGE_SIZE - newSlot, &directory, sizeof(SlotDr));
-    if(freeSpace < size + sizeof(SlotDr)) {
-        fileHandle.appendPage(data);
-        //fileHandle.readPage(rid.pageNum++, );
-    }
-    else {
-        cout << "BUFFER b4\n" << directory->length;
-        //memcpy((buffer + directory->offset), work, directory->length + 1);
-        //printRecord(recordDescriptor, work + size);
-        //fwrite(buffer, 1, PAGE_SIZE, fileHandle.getFP());
-        cout << "BUFFER " << (int *)buffer;
-        //memcpy((buffer + PAGE_SIZE - newSlot), &directory, sizeof(SlotDr));
-        //int help = fwrite(buffer, 1, PAGE_SIZE, fileHandle.getFP());
-        //cout << "HELLO I NEED HELP " << help;
-        //memcpy(work, buffer, 25);
-        //printRecord(recordDescriptor, work + size);
-        //printRecord(recordDescriptor, buffer);
-        //memcpy(buffer + (PAGE_SIZE - newSlot), directory->length, sizeof(directory->length));
-        //printRecord(recordDescriptor, work + size);
-        int off = ceil((double) recordDescriptor.size() / 8);
-        for(unsigned i = 0; i < recordDescriptor.size(); i++) {
-        switch(recordDescriptor[i].type) {
-            case TypeInt: {
-                
-                memcpy(buffer + off, work + off, sizeof(int));
-                off += sizeof (int);
-                cout << off << "\n";
-                break;
-            }
-            case TypeReal: {
-                 
-                 memcpy(buffer + off, work + off, sizeof(float));
-                 off += sizeof (float);
-                 cout << off << "\n";
-                 break;
-            }
-            case TypeVarChar: {
-                //data = (buffer[directoryOff + (sizeof int)]
-                void *length = malloc(sizeof (int));
-                memcpy(length, work + off, sizeof (int));
-                memcpy(buffer + off,length, sizeof (int));
-                off = off + sizeof (int);
-                cout << "Length \n" << *(int*)length;
-                cout << off << "\n";
-                memcpy(buffer + off, work + off, *(int*)length);
-                off += *(int*)length;
-                free(length);	 
-                break;
-            }
-        }
-        
-    }
-        memcpy(buffer + PAGE_SIZE - newSlot, directory, sizeof(SlotDr));
-        //cout << *(unsigned*) (buffer + PAGE_SIZE - newSlot) << "\n TESTING: " << *(unsigned*) buffer + PAGE_SIZE - 4;
-        fwrite(buffer, 1, PAGE_SIZE, fileHandle.getFP());
-        //printRecord(recordDescriptor, buffer);
-        //void* testing = malloc(500);
-        //memcpy(testing, buffer + directory->offset + 1, sizeof(int));
-        //cout << "TEST: " << *(int *) testing; 
-        //printRecord(recordDescriptor, buffer);
-    }
-    
-    return 0;
+	
+	// Check if file is open
+	
+	// Check if recordDescriptor prepared
+	int fieldCount = recordDescriptor.size();
+	if(fieldCount == 0 )
+		return -1;
+	
+	// Find size of record to be inserted
+	
+	int nullbytes = ceil( (double) fieldCount / 8 );
+	unsigned char *nullFieldsIndicator =  (unsigned char *) malloc(nullbytes);
+	memcpy(nullFieldsIndicator, data, nullbytes);
+
+	int fieldsRead = 0;
+	int recordSize = 0;
+	int offset = nullbytes;
+
+	bool nullbit = false;
+	for( int i=0; i<nullbytes; i++)
+	{
+		recordSize++;
+		for( int j=7; j>=0; j--)
+		{
+			nullbit = nullFieldsIndicator[i] & ( 1 << j );
+			if(!nullbit)
+			{	
+				// Add bytes if TypeVarChar
+				Attribute attr = recordDescriptor[fieldsRead];
+				switch(attr.type){
+					case TypeInt:
+					{	
+						break;
+					}
+					case TypeReal:
+					{	
+						break;
+					}
+					case TypeVarChar:
+					{
+						char varLength = *((char*)data + offset);
+						recordSize += (int)varLength;
+						offset += varLength;
+						break;
+					}
+					default:
+						break;
+				}
+				recordSize += sizeof(int);
+				offset += sizeof(int);
+			}
+			fieldsRead++;
+			if(fieldsRead == fieldCount)
+			{
+				j=-1;
+				i=nullbytes;
+			}
+		}
+	}
+	free(nullFieldsIndicator);
+
+	// Find last page in file
+	void *buffer = malloc(PAGE_SIZE);
+	int currentPage = fileHandle.getNumberOfPages()-1;
+	if(currentPage == -1)
+	{
+		*((char*)buffer + PAGE_SIZE - sizeof(int) ) = 0;
+		*((char*)buffer + PAGE_SIZE - sizeof(int) - sizeof(int) ) = 0;
+		fileHandle.appendPage(buffer);
+	
+		currentPage++;
+	}
+
+	// Find last slot in page
+	fileHandle.readPage(currentPage, buffer);
+	int numSlots = (int) *((char*) buffer + PAGE_SIZE - sizeof(int) - sizeof(int) );
+	int freeSpaceOffset = (int) *((char*) buffer + PAGE_SIZE - sizeof(int) );
+cout<<"numSlots: "<<numSlots<<endl<<"freeSpaceOffset: "<<freeSpaceOffset<<endl;
+	// Check if free space is less than size of record + slot size
+	if( numSlots == 0)
+	{
+		rid.pageNum = currentPage;
+		rid.slotNum = 1;
+		// set 1st slot
+		SlotDr *setSlot;
+		setSlot = ((SlotDr *) buffer + PAGE_SIZE - 16 );
+		setSlot->offset = 0;
+		setSlot->length = recordSize;
+		// update slot directory
+		*((char*) buffer + PAGE_SIZE - sizeof(int) - sizeof(int) ) = 0;
+		*((char*) buffer + PAGE_SIZE - sizeof(int) ) = recordSize;
+		memcpy( buffer, data, recordSize);
+		fileHandle.writePage(currentPage, buffer);
+		free(buffer);
+		return 0;
+	}
+	unsigned freeSpace = PAGE_SIZE - freeSpaceOffset - (numSlots* sizeof(SlotDr) );
+	if(freeSpace >= recordSize + sizeof(SlotDr) )
+	{
+		// set rid
+		rid.pageNum = currentPage;
+		rid.slotNum = numSlots+1;
+		// get last occupied slot's length
+		SlotDr *lastSlot = (SlotDr*) buffer + PAGE_SIZE - 8 - (numSlots*sizeof(SlotDr) );
+		int lastRecordSize = lastSlot->length;
+		// set new slot
+cout<<"lastRecordSize: "<<lastRecordSize<<endl;
+		SlotDr *setSlot;
+		setSlot = (SlotDr*) buffer + PAGE_SIZE - 8 - ((numSlots+1) * sizeof(SlotDr) );
+		setSlot->offset = freeSpaceOffset + lastRecordSize;
+		setSlot->length = recordSize;
+		
+		// update page slot directory's # of slots and free space pointer
+		*((char*) buffer + PAGE_SIZE - sizeof(int) - sizeof(int) ) += 1;
+		*((char*) buffer + PAGE_SIZE - sizeof(int) ) += recordSize;
+		// copy record into buffer
+		memcpy( ((char*)buffer) + freeSpaceOffset + lastRecordSize , data, recordSize);
+		// write buffer to page
+		fileHandle.writePage(currentPage, buffer);
+		free(buffer);
+		return 0;
+	}
+	else
+		cout<<"not enough space in this page \n\n";
+	
+    return -1;
 }
 
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, void *data) {
-    void *buffer = malloc(PAGE_SIZE);
-    fileHandle.readPage(rid.pageNum, buffer);
-    int directoryOff = (rid.slotNum + 1) * sizeof(SlotDr); //move to begining of slot
-    directoryOff = PAGE_SIZE - directoryOff; //move to begining of slot
+	void *buffer = malloc(PAGE_SIZE);
+	fileHandle.readPage(rid.pageNum, buffer);
+	SlotDr *recordSlot =   (SlotDr*)buffer + PAGE_SIZE - sizeof(int) - sizeof(int) - (rid.slotNum*sizeof(SlotDr)) ;
+	int recordOffset = recordSlot->offset;
+	int recordSize = recordSlot->length;
+	memcpy(data, (char*)buffer + recordOffset, recordSize);
+/*
+unsigned char * nullindicator = (unsigned char*)malloc(sizeof(char));
+memcpy(nullindicator,data,sizeof(char));
+for(int i=7;i>=0;i--)
+{
+	bool  nullbit = nullindicator[0] & (1 << i);
+cout<<nullbit<<endl;
+}
+	printRecord(recordDescriptor, data);	
+*/
+
+/*
     SlotDr *directory;
-    memcpy(directory, buffer + directoryOff, sizeof(SlotDr));
-    cout << "READ: OFF " << directory->offset << "\n RECORD LENGTH: " << directory->length << "\n";
-    //memcpy(data, buffer + directory->offset, directory->length);
-    int off = ceil((double) recordDescriptor.size() / 8);
+    directory = (SlotDr*) buffer[directoryOff];
+    memcpy(data, buffer[directory->offset], directory->length);
+   
+    int off = 0;
     for(unsigned i = 0; i < recordDescriptor.size(); i++) {
         switch(recordDescriptor[i].type) {
             case TypeInt:
                 //data = buffer[directoryOff + (sizeof int)]
-                memcpy(data + directory->offset + off, buffer + directory->offset + off, sizeof (int));
+                memcpy(data, buffer[directory->offset + off], sizeof (int));
                 off += sizeof (int);
-                cout << off << "\n";
                 break;
             case TypeReal:
                  //data = buffer[directoryOff + (sizeof float)]
-                 memcpy(data + directory->offset + off, buffer + directory->offset + off, sizeof (float));
+                 memcpy(data, buffer[directory->offset + off], sizeof (float));
                  off += sizeof (float);
-                 cout << off << "\n";
                  break;
             case TypeVarChar:
                 //data = (buffer[directoryOff + (sizeof int)]
-                memcpy(data + directory->offset + off, buffer + directory->offset + off, sizeof (int));
+                memcpy(data, buffer[directory->offset + off], sizeof (int));
                 void *length = malloc(sizeof (int));
-                memcpy(length, buffer + directory->offset + off, sizeof (int));
+                memcpy(length, buffer[directory->offset + off], sizeof (int));
                 off += sizeof (int);  
-                memcpy(data + directory->offset + off, buffer + directory->offset + off, *(int*)length);
-                off += *(int*) length;
-                cout << off << "\n";
+                memcpy(data, buffer[directory->offset + off], *(int*)length);
                 free(length);	 
                 break;
         }
-    }
-    cout << "READ RECORD SIZE: " << off << "\n";
+    }*/
+	free(buffer);
     return 0;
 }
 
 RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor, const void *data) {
-    int off = ceil((double) recordDescriptor.size() / 8);
-    for(unsigned i = 0; i < recordDescriptor.size(); i++) {
-        switch(recordDescriptor[i].type) {
-            case TypeInt: {
-                //data = buffer[directoryOff + (sizeof int)]
-                void *print = malloc(sizeof (int));
-                memcpy(print, data + off, sizeof (int));
-                cout << "TYPE INT: "<< *(int *) print << "\n";
-                free(print);
-                off += sizeof (int);
-                break;
-            }
-            case TypeReal: {
-                 //data = buffer[directoryOff + (sizeof float)]
-                 void *print = malloc(sizeof (float));
-                 memcpy(print, data + off, sizeof (float));
-                 cout << "TYPEREAL: " << *(float *) print << "\n";
-                 free(print);
-                 off += sizeof (float);
-                 break;
-            }
-            case TypeVarChar: {
-                //data = (buffer[directoryOff + (sizeof int)]
-               
-                void *length = malloc(sizeof (int));
-                memcpy(length, data + off, sizeof (int));
-                
-                cout << "TYPEVARCHAR LENGTH: "<< *(int *) length << "\n";
-                off += sizeof (int);  
-                void *print = malloc(*(int *) length);
-                memcpy(print, data + off, *(int*)length);
-                for(int i = 0; i < *(int *) length; i++)
-                    cout << *(char *) (print + i);
-                cout << "\n";
-                off += *(int*) length;
-                free(length);	
-                free(print); 
-                break;
-            }
-        }
-    }
-    return 0;
+   
+   
+	int fieldCount = recordDescriptor.size();
+	if(fieldCount <= 0)
+		return -1;
+	int nullBytes = ceil((double) fieldCount / CHAR_BIT);
+	int offset = nullBytes;
+	
+	bool nullBit = false;
+	unsigned char *nullFieldsIndicator = (unsigned char *) malloc(nullBytes);
+	memcpy( nullFieldsIndicator, data, nullBytes);
+	
+	int fieldsRead = 0;
+	for(int i=0; i<nullBytes; i++)
+	{
+		for(int j=7; j>=0; j--)
+		{
+			cout<< recordDescriptor[fieldsRead].name<<": ";
+	
+			nullBit = nullFieldsIndicator[i] & (1 << j);
+			if(!nullBit){
+				Attribute attr = recordDescriptor[fieldsRead];
+				switch(attr.type){
+					case TypeInt:
+					{
+					 	//data = buffer[directoryOff + (sizeof int)]
+                				void *print = malloc(sizeof (int));
+                				memcpy(print,((char*) data)+offset, sizeof (int));
+                				cout << *(int *) print << "   ";
+                				free(print);
+                				offset += sizeof (int);
+						break;
+					}
+					case TypeReal:
+					{
+				       		void *print = malloc(sizeof (float));
+                 				memcpy(print,((char*) data) +offset, sizeof (float));
+                 				cout  << *(float *) print << "   ";
+                 				free(print);
+                 				offset += sizeof (float);
+						break;
+					}
+					case TypeVarChar:
+					{
+						void *nameLength = malloc(sizeof(int));
+						memcpy(nameLength, ((char*) data)+offset, sizeof(int));
+						offset += sizeof(int);
+
+						void *name = malloc( *(int*)nameLength );
+						memcpy(name,((char*) data+offset), *(int*)nameLength );
+						for(int k=0;k<*(int*)nameLength;k++)
+							cout<<*((char*)name+k);
+						cout<<"   ";
+						offset += *(int*)nameLength;
+						free(name);
+						break;
+					}
+					default:
+					{
+						break;
+					}
+				}
+			}
+			else
+				cout<<"NULL\t";
+	
+			fieldsRead++;
+			if(fieldsRead==fieldCount)
+				return 0;
+		}	 
+	}	 
+
+    return -1;
 }
+
