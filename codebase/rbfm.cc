@@ -106,7 +106,6 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 	}
 	free(nullFieldsIndicator);
 
-cout<<"rSize: "<<recordSize<<endl;
 	// Find last page in file
 	void *buffer = malloc(PAGE_SIZE);
 	int *freeSpaceOffset = (int*) buffer + 1023;
@@ -125,8 +124,6 @@ cout<<"rSize: "<<recordSize<<endl;
 	freeSpaceOffset = (int*) buffer + 1023;
 	numSlots = (int*) buffer + 1022;
 
-cout<<"numSlots: "<<*(numSlots)<<endl<<"freeSpaceOffset: "<<*(freeSpaceOffset)<<endl;
-
 	// Check if free space is less than size of record + slot size
 	if( *(numSlots) == 0)
 	{
@@ -144,14 +141,11 @@ cout<<"numSlots: "<<*(numSlots)<<endl<<"freeSpaceOffset: "<<*(freeSpaceOffset)<<
 		// update slot directory
 		*(freeSpaceOffset) = recordSize;
 		*(numSlots) = 1;
-cout<<"recordSize: "<<recordSize<<endl;
+		
 		memcpy( buffer, data, recordSize);
 		fileHandle.writePage(currentPage, buffer);
 
-int freeOff = *( (int*)buffer + 1023 );
-cout<<"freeOff: "<<freeOff<<endl<<"\n";
 		free(buffer);	
-cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;
 		return 0;
 	}
 	int freeSpace = PAGE_SIZE - 8 - *(freeSpaceOffset) - (*(numSlots)* 8 );
@@ -164,52 +158,47 @@ cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;
 		//SlotDr *lastSlot = (SlotDr*) buffer + PAGE_SIZE - 8 - (*(numSlots)*sizeof(SlotDr) );
 		int *lastRecordSize =  (int*) buffer + (1024 - 2 - (*(numSlots)*2) + 1);
 		// set new slot
-cout<<"lastRecordSize: "<<*(lastRecordSize)<<endl;
 	//	SlotDr *setSlot;
 	//	setSlot = (SlotDr*) buffer + PAGE_SIZE - 8 - ((*(numSlots)+1) * sizeof(SlotDr) );
 	//	setSlot->offset = *(freeSpaceOffset) + lastRecordSize;
 	//	setSlot->length = recordSize;
-		int *off = (int*) buffer + (1024 - 2 - (*(numSlots)*2));
-		int *len = (int*) buffer + (1024 - 2 - (*(numSlots)*2) +1);
-		*(off) = *(freeSpaceOffset) + *(lastRecordSize);
+		int *off = (int*) buffer + (1022 - 2 - (*(numSlots)*2));
+		int *len = (int*) buffer + (1022 - 2 - (*(numSlots)*2) +1);
+		*(off) = *(freeSpaceOffset);
 		*(len) = recordSize;
-cout<<"recordSize: "<<recordSize<<endl;	
-*(freeSpaceOffset) = *(freeSpaceOffset) + recordSize;		
+		*(freeSpaceOffset) = *(freeSpaceOffset) + recordSize;		
 // copy record into buffer
 		memcpy( (char*) buffer + *(freeSpaceOffset) - recordSize, data, recordSize);
 		// update page slot directory's # of slots and free space pointer
 		*(numSlots) = *(numSlots) + 1;
-//		*(freeSpaceOffset) = *(freeSpaceOffset) + recordSize;
 		// write buffer to page
 		fileHandle.writePage(currentPage, buffer);
-cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl;
 		free(buffer);
-cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;	return 0;
+		return 0;
 	}
 	else
 	{
-		cout<<"not enough space in this page \n\n";
 		for(int k=0; k<currentPage; k++)
 		{
 			fileHandle.readPage(k,buffer);
-			freeSpaceOffset = (int*) buffer + 1023;
+			int *freeOffset = (int*) buffer + 1023;
 			numSlots = (int*) buffer + 1022;
-			freeSpace = PAGE_SIZE - 8 - *(freeSpaceOffset) - (*(numSlots)*8 );
+			freeSpace = PAGE_SIZE - 8 - *(freeOffset) - (*(numSlots)*8 );
 			if(freeSpace >= recordSize + (int)sizeof(SlotDr) )
 			{
 				// set rid
 				rid.pageNum = k;
 				rid.slotNum = *(numSlots)+1;
 				// get last occupied slot's length
-				int lastRecordSize = *( (int*) buffer + 1024 - 2 - (*(numSlots)*2) + 1);
+				int lastRecordSize = *( (int*) buffer + 1024 - (*(numSlots)*2) + 1);
 				// set new slot
-				int *off = (int*) buffer + 1024 - 2 - (*(numSlots)*2);
-				int *len = (int*) buffer + 1024 - 2 - (*(numSlots)*2) + 1;
-				*(off) = *(freeSpaceOffset) + lastRecordSize;
+				int *off = (int*) buffer + 1022 - 2 - (*(numSlots)*2);
+				int *len = (int*) buffer + 1022 - 2 - (*(numSlots)*2) + 1;
+				*(off) = *(freeOffset);
 				*(len) = recordSize;
-	*(freeSpaceOffset) += recordSize;
+	*(freeOffset) += recordSize;
 				// copy record into buffer
-				memcpy( (char*)buffer + *(freeSpaceOffset) - recordSize, data, recordSize);
+				memcpy( (char*)buffer + *(freeOffset) - recordSize, data, recordSize);
 				// update page slot directory's # of slots and free space pointer
 				*(numSlots) += 1;
 	//			*(freeSpaceOffset) += recordSize;
@@ -231,10 +220,6 @@ cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;	return 0;
 		rid.pageNum = currentPage+1;
 		rid.slotNum = 1;
 		// set 1st slot
-//		SlotDr *setSlot;
-//		setSlot = ((SlotDr *) buff + PAGE_SIZE - 16 );
-//		setSlot->offset = 0;
-//		setSlot->length = recordSize;
 		int *off = (int*) buff + 1020;
 		int *len = (int*) buff + 1021;
 		*(off) = 0;
@@ -247,7 +232,6 @@ cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;	return 0;
 		// write buff to new page
 		fileHandle.appendPage(buff);
 		free(buff);
-cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;
 		return 0;	 
 	}
 	
@@ -257,13 +241,10 @@ cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, void *data) {
 	void *buffer = malloc(PAGE_SIZE);
 	fileHandle.readPage(rid.pageNum, buffer);
-//	SlotDr *recordSlot =   (SlotDr*)buffer + PAGE_SIZE - sizeof(int) - sizeof(int) - (rid.slotNum*sizeof(SlotDr)) ;
-//	int recordOffset = recordSlot->offset;
-//	int recordSize = recordSlot->length;
 	int numSlots = *( (int*) buffer + 1022);
-	int *recordOffset = (int*) buffer + 1022 - (numSlots*2);
-	int *recordSize = (int*) buffer + 1022 - (numSlots*2) +1;
-	memcpy(data, (char*)buffer + *(recordOffset), *(recordSize));
+	int *recordOffset = (int*) buffer + 1022 - (rid.slotNum*2);
+	int *recordSize = (int*) buffer + 1022 - (rid.slotNum*2) + 1;
+memcpy(data, (char*)buffer + *(recordOffset), *(recordSize));
 	free(buffer);
     return 0;
 }
