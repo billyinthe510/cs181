@@ -118,10 +118,8 @@ cout<<"rSize: "<<recordSize<<endl;
 		*(freeSpaceOffset) = 0;
 		*(numSlots) = 0;
 		fileHandle.appendPage(buffer);
-	
-		currentPage++;
 	}
-
+	currentPage = fileHandle.getNumberOfPages() - 1;
 	// Find last slot in page
 	fileHandle.readPage(currentPage, buffer);
 	freeSpaceOffset = (int*) buffer + 1023;
@@ -135,10 +133,14 @@ cout<<"numSlots: "<<*(numSlots)<<endl<<"freeSpaceOffset: "<<*(freeSpaceOffset)<<
 		rid.pageNum = currentPage;
 		rid.slotNum = 1;
 		// set 1st slot
-		SlotDr *setSlot;
-		setSlot = ((SlotDr *) buffer + PAGE_SIZE - 16 );
-		setSlot->offset = 0;
-		setSlot->length = recordSize;
+		//SlotDr *setSlot;
+		//setSlot = (SlotDr *) buffer + PAGE_SIZE - 16 ;
+	//	setSlot->offset = 0;
+	//	setSlot->length = recordSize;
+		int *off = (int*) buffer + 1020;
+		int *len = (int*) buffer + 1021;
+		*(off) = 0;
+		*(len) = recordSize;
 		// update slot directory
 		*(freeSpaceOffset) = recordSize;
 		*(numSlots) = 1;
@@ -148,37 +150,106 @@ cout<<"recordSize: "<<recordSize<<endl;
 
 int freeOff = *( (int*)buffer + 1023 );
 cout<<"freeOff: "<<freeOff<<endl<<"\n";
-		free(buffer);
-cout<<endl;	return 0;
+		free(buffer);	
+cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;
+		return 0;
 	}
-	int freeSpace = PAGE_SIZE - *(freeSpaceOffset) - (*(numSlots)* sizeof(SlotDr) );
-	if(freeSpace >= recordSize + (int) sizeof(SlotDr) )
+	int freeSpace = PAGE_SIZE - 8 - *(freeSpaceOffset) - (*(numSlots)* 8 );
+	if(freeSpace >= recordSize + 8 )
 	{
 		// set rid
 		rid.pageNum = currentPage;
 		rid.slotNum = *(numSlots)+1;
 		// get last occupied slot's length
-		SlotDr *lastSlot = (SlotDr*) buffer + PAGE_SIZE - 8 - (*(numSlots)*sizeof(SlotDr) );
-		int lastRecordSize = lastSlot->length;
+		//SlotDr *lastSlot = (SlotDr*) buffer + PAGE_SIZE - 8 - (*(numSlots)*sizeof(SlotDr) );
+		int *lastRecordSize =  (int*) buffer + (1024 - 2 - (*(numSlots)*2) + 1);
 		// set new slot
-cout<<"lastRecordSize: "<<lastRecordSize<<endl;
-		SlotDr *setSlot;
-		setSlot = (SlotDr*) buffer + PAGE_SIZE - 8 - ((*(numSlots)+1) * sizeof(SlotDr) );
-		setSlot->offset = *(freeSpaceOffset) + lastRecordSize;
-		setSlot->length = recordSize;
-cout<<"recordSize: "<<recordSize<<endl;		
+cout<<"lastRecordSize: "<<*(lastRecordSize)<<endl;
+	//	SlotDr *setSlot;
+	//	setSlot = (SlotDr*) buffer + PAGE_SIZE - 8 - ((*(numSlots)+1) * sizeof(SlotDr) );
+	//	setSlot->offset = *(freeSpaceOffset) + lastRecordSize;
+	//	setSlot->length = recordSize;
+		int *off = (int*) buffer + (1024 - 2 - (*(numSlots)*2));
+		int *len = (int*) buffer + (1024 - 2 - (*(numSlots)*2) +1);
+		*(off) = *(freeSpaceOffset) + *(lastRecordSize);
+		*(len) = recordSize;
+cout<<"recordSize: "<<recordSize<<endl;	
+*(freeSpaceOffset) = *(freeSpaceOffset) + recordSize;		
+// copy record into buffer
+		memcpy( (char*) buffer + *(freeSpaceOffset) - recordSize, data, recordSize);
 		// update page slot directory's # of slots and free space pointer
-		*(numSlots) += 1;
-		*(freeSpaceOffset) += recordSize;
-		// copy record into buffer
-		memcpy( ((char*)buffer) + *(freeSpaceOffset) + lastRecordSize , data, recordSize);
+		*(numSlots) = *(numSlots) + 1;
+//		*(freeSpaceOffset) = *(freeSpaceOffset) + recordSize;
 		// write buffer to page
 		fileHandle.writePage(currentPage, buffer);
+cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl;
 		free(buffer);
-cout<<endl;		return 0;
+cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;	return 0;
 	}
 	else
+	{
 		cout<<"not enough space in this page \n\n";
+		for(int k=0; k<currentPage; k++)
+		{
+			fileHandle.readPage(k,buffer);
+			freeSpaceOffset = (int*) buffer + 1023;
+			numSlots = (int*) buffer + 1022;
+			freeSpace = PAGE_SIZE - 8 - *(freeSpaceOffset) - (*(numSlots)*8 );
+			if(freeSpace >= recordSize + (int)sizeof(SlotDr) )
+			{
+				// set rid
+				rid.pageNum = k;
+				rid.slotNum = *(numSlots)+1;
+				// get last occupied slot's length
+				int lastRecordSize = *( (int*) buffer + 1024 - 2 - (*(numSlots)*2) + 1);
+				// set new slot
+				int *off = (int*) buffer + 1024 - 2 - (*(numSlots)*2);
+				int *len = (int*) buffer + 1024 - 2 - (*(numSlots)*2) + 1;
+				*(off) = *(freeSpaceOffset) + lastRecordSize;
+				*(len) = recordSize;
+	*(freeSpaceOffset) += recordSize;
+				// copy record into buffer
+				memcpy( (char*)buffer + *(freeSpaceOffset) - recordSize, data, recordSize);
+				// update page slot directory's # of slots and free space pointer
+				*(numSlots) += 1;
+	//			*(freeSpaceOffset) += recordSize;
+				// write buffer to page
+				fileHandle.writePage(k, buffer);
+				free(buffer);
+				buffer = NULL;
+				return 0;
+			}
+		}
+		// no free space in any previous pages
+		free(buffer);
+		buffer = NULL;
+		void *buff = malloc(PAGE_SIZE);
+		freeSpaceOffset = (int*) buff + 1023;
+		numSlots = (int*) buff + 1022;
+		currentPage = fileHandle.getNumberOfPages() - 1;
+		// set rid
+		rid.pageNum = currentPage+1;
+		rid.slotNum = 1;
+		// set 1st slot
+//		SlotDr *setSlot;
+//		setSlot = ((SlotDr *) buff + PAGE_SIZE - 16 );
+//		setSlot->offset = 0;
+//		setSlot->length = recordSize;
+		int *off = (int*) buff + 1020;
+		int *len = (int*) buff + 1021;
+		*(off) = 0;
+		*(len) = recordSize;
+		// update slot directory
+		*(freeSpaceOffset) = recordSize;
+		*(numSlots) = 1;
+		// copy record to buff
+		memcpy( buff, data, recordSize);
+		// write buff to new page
+		fileHandle.appendPage(buff);
+		free(buff);
+cout<<"rid: "<<rid.pageNum<<" "<<rid.slotNum<<endl<<endl;
+		return 0;	 
+	}
 	
     return -1;
 }
@@ -186,50 +257,13 @@ cout<<endl;		return 0;
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, void *data) {
 	void *buffer = malloc(PAGE_SIZE);
 	fileHandle.readPage(rid.pageNum, buffer);
-	SlotDr *recordSlot =   (SlotDr*)buffer + PAGE_SIZE - sizeof(int) - sizeof(int) - (rid.slotNum*sizeof(SlotDr)) ;
-	int recordOffset = recordSlot->offset;
-	int recordSize = recordSlot->length;
-	memcpy(data, (char*)buffer + recordOffset, recordSize);
-/*
-unsigned char * nullindicator = (unsigned char*)malloc(sizeof(char));
-memcpy(nullindicator,data,sizeof(char));
-for(int i=7;i>=0;i--)
-{
-	bool  nullbit = nullindicator[0] & (1 << i);
-cout<<nullbit<<endl;
-}
-	printRecord(recordDescriptor, data);	
-*/
-
-/*
-    SlotDr *directory;
-    directory = (SlotDr*) buffer[directoryOff];
-    memcpy(data, buffer[directory->offset], directory->length);
-   
-    int off = 0;
-    for(unsigned i = 0; i < recordDescriptor.size(); i++) {
-        switch(recordDescriptor[i].type) {
-            case TypeInt:
-                //data = buffer[directoryOff + (sizeof int)]
-                memcpy(data, buffer[directory->offset + off], sizeof (int));
-                off += sizeof (int);
-                break;
-            case TypeReal:
-                 //data = buffer[directoryOff + (sizeof float)]
-                 memcpy(data, buffer[directory->offset + off], sizeof (float));
-                 off += sizeof (float);
-                 break;
-            case TypeVarChar:
-                //data = (buffer[directoryOff + (sizeof int)]
-                memcpy(data, buffer[directory->offset + off], sizeof (int));
-                void *length = malloc(sizeof (int));
-                memcpy(length, buffer[directory->offset + off], sizeof (int));
-                off += sizeof (int);  
-                memcpy(data, buffer[directory->offset + off], *(int*)length);
-                free(length);	 
-                break;
-        }
-    }*/
+//	SlotDr *recordSlot =   (SlotDr*)buffer + PAGE_SIZE - sizeof(int) - sizeof(int) - (rid.slotNum*sizeof(SlotDr)) ;
+//	int recordOffset = recordSlot->offset;
+//	int recordSize = recordSlot->length;
+	int numSlots = *( (int*) buffer + 1022);
+	int *recordOffset = (int*) buffer + 1022 - (numSlots*2);
+	int *recordSize = (int*) buffer + 1022 - (numSlots*2) +1;
+	memcpy(data, (char*)buffer + *(recordOffset), *(recordSize));
 	free(buffer);
     return 0;
 }
@@ -299,11 +333,14 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
 				}
 			}
 			else
-				cout<<"NULL\t";
+				cout<<"NULL   ";
 	
 			fieldsRead++;
 			if(fieldsRead==fieldCount)
+			{
+				free(nullFieldsIndicator);
 				return 0;
+			}
 		}	 
 	}	 
 
