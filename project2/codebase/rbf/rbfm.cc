@@ -279,6 +279,64 @@ unsigned RecordBasedFileManager::getPageFreeSpaceSize(void * page)
     return slotHeader.freeSpaceOffset - slotHeader.recordEntriesNumber * sizeof(SlotDirectoryRecordEntry) - sizeof(SlotDirectoryHeader);
 }
 
+RC RecordBasedFileManager::isAlive(SlotDirectoryRecordEntry slotEntry)
+{
+	return !( (slotEntry.length ==0 && currentSlot.offset==0)|| slotEntry.offset<0 );
+}
+
+void RecordBasedFileManager::compact(FileHandle &fileHandle, RID &rid, void *page)
+{
+	// Get slot header
+	SlotDirectory slotHeader = getSlotDirectoryHeader(page);
+	unsigned slotsOccupied = (unsigned) slotHeader.recordEntriesNumber;
+
+	// Gather alive slots
+	SlotDirectoryRecordEntry currentSlot;
+	unsigned recordSpace = 0;
+	void *records = malloc(PAGE_SIZE);
+
+	for(unsigned i = slotsOccupied-1; i >= 0; i--)
+	{
+		// Get current slot
+		currentSlot = getSlotDirectoryRecordEntry(page,i);
+		// Skip if slot is dead or forwarded
+		if( !isAlive(currentSlot) )
+			;
+		// Slot is alive
+		else
+		{
+			memcpy( records, page+currentSlot.offset, currentSlot.length);
+			recordSpace += curentSlot.length;
+		}
+	}
+
+	// Update slot entry offsets
+	unsigned freeSpace = PAGE_SIZE;
+	for( unsigned j = 0; j < slotsOccupied; j++)
+	{
+		currentSlot = getSlotDirectoryRecordEntry(page,j);
+		if( !isAlive(currentSlot) )
+			;
+		else
+		{
+			freeSpace -= currentSlot.length;
+			// Update current slot entry
+			currentSlot.offset = freeSpace;
+			SetDirectoryRecordEntry(page, j, currentSlot);
+		}
+	}
+	// Copy records back into page
+	memcpy( page+freeSpace, records, recordSpace);
+	// Update Slot Header freeSpaceOffset
+	slotHeader.freeSpaceOffset = freeSpace;
+	setSlotDirectoryHeader(page, slotHeader);
+	
+	// Write compacted records to disk
+	fileHandle.writePage(rid.pageNum, page);
+
+	free(records);	
+}
+
 unsigned RecordBasedFileManager::getRecordSize(const vector<Attribute> &recordDescriptor, const void *data) 
 {
     // Read in the null indicator

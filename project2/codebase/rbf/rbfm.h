@@ -190,6 +190,9 @@ private:
 
   void setRecordAtOffset(void *page, unsigned offset, const vector<Attribute> &recordDescriptor, const void *data);
   void getRecordAtOffset(void *record, unsigned offset, const vector<Attribute> &recordDescriptor, void *data);
+
+  void compact(FileHandle &fileHandle, const RID &rid, void *page);
+  int isAlive(SlotDirectoryRecordEntry slotEntry);
 };
 
 #endif
