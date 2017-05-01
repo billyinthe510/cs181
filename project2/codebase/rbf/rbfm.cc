@@ -221,6 +221,77 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
 
     return SUCCESS;
 }
+RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid)
+{
+    int rc;
+    // Retrieve the specific page
+    void *pageData = malloc(PAGE_SIZE);
+    if (fileHandle.readPage(rid.pageNum, pageData))
+        return RBFM_READ_FAILED;
+    
+    // Checks if the specific slot id exists in the page
+    SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
+    if(slotHeader.recordEntriesNumber < rid.slotNum)
+        return RBFM_SLOT_DN_EXIST;
+    
+    // Gets the slot directory record entry data
+    SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry(pageData, rid.slotNum);
+    
+    // Alive
+    if (recordEntry.offset > 0)
+    {
+        //slotHeader.freeSpaceOffset += recordEntry.offset;
+        recordEntry.offset = 0;
+        recordEntry.length = 0;
+        setSlotDirectoryRecordEntry(pageData, rid.slotNum, recordEntry);
+        //setSlotDirectoryHeader(pageData, slotHeader);
+        
+        compact(fileHandle, rid, pageData);
+        fileHandle.writePage(rid.pageNum, pageData);
+        rc = 0;
+        
+    }
+    // Moved
+    else if (recordEntry.offset < 0)
+    {
+        RID rid2;
+        rid2.pageNum = recordEntry.length;
+        rid2.slotNum = -1 * (rid.slotNum);
+        rc = deleteRecord(fileHandle, recordDescriptor, rid2);
+    }
+    // Dead
+    else
+    {
+        rc = -1;
+    }
+    free(pageData);
+    return rc;
+}
+
+// Assume the RID does not change after an update
+RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, const RID &rid)
+{
+    
+    return -1;
+}
+
+RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, const string &attributeName, void *data)
+{
+    return -1;
+}
+
+// Scan returns an iterator to allow the caller to go through the results one by one.
+RC RecordBasedFileManager::scan(FileHandle &fileHandle,
+                                const vector<Attribute> &recordDescriptor,
+                                const string &conditionAttribute,
+                                const CompOp compOp,                  // comparision type such as "<" and "="
+                                const void *value,                    // used in the comparison
+                                const vector<string> &attributeNames, // a list of projected attributes
+                                RBFM_ScanIterator &rbfm_ScanIterator)
+{
+    return -1;
+}
+
 
 // Private helper methods
 
@@ -281,7 +352,7 @@ unsigned RecordBasedFileManager::getPageFreeSpaceSize(void * page)
 
 RC RecordBasedFileManager::isAlive(SlotDirectoryRecordEntry slotEntry)
 {
-	return !( (slotEntry.length ==0 && currentSlot.offset==0)|| slotEntry.offset<0 );
+	return !( (slotEntry.length ==0 && slotEntry.offset==0)|| slotEntry.offset<0 );
 }
 
 void RecordBasedFileManager::compact(FileHandle &fileHandle, RID &rid, void *page)
