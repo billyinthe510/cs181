@@ -248,7 +248,6 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
         //setSlotDirectoryHeader(pageData, slotHeader);
         
         compact(fileHandle, rid, pageData);
-        fileHandle.writePage(rid.pageNum, pageData);
         rc = 0;
         
     }
@@ -283,7 +282,10 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
         return RBFM_READ_FAILED;
     //Check slot and make sure it is valid.
     SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
-    if(rid.slotNum < slotHeader.recordEntriesNumber) {
+    
+	if(rid.slotNum >= slotHeader.recordEntriesNumber)
+		
+    else(rid.slotNum < slotHeader.recordEntriesNumber) {
         SlotDirectoryRecordEntry slotEntry = getSlotDirectoryRecordEntry(pageData, rid.slotNum);
         //Entry is dead
         if(slotEntry.offset == 0) {
@@ -376,10 +378,102 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
     return SUCCESS;
     
 }
+
+RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor,
+const RID &rid, const string &attributeName, void *data)
+{
+	// Find the page
+	void *pageData = malloc(PAGE_SIZE);
+	if(pageData == NULL)
+	{
+		free(pageData);
+		return RBFM_MALLOC_FAILED;
+	}
+	if(fileHandle.readPage(rid.pageNum,pageData))
+	{
+		free(pageData);
+		return RBFM_READ_FAILED;
+	}
+	// Find the slot header and validate
+	SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
+	if(slotHeader.recordEntriesNumber < rid.slotNum)
+	{
+		free(pageData);
+		return RBFM_SLOT_DN_EXIST;
+	}
+	// Get the slot
+	SlotDirectoryRecordEntry recordEntry = getSlotDirectryRecordEntry(pageData,rid.slotNum);
+	// Get index from vector<Attributes>
+	int descriptorIndex = -1;
+	unsigned i;
+	for(i=0; i<recordDescriptor.size(); i++)
+	{
+		if(recordDescriptor[i].name == attributeName)
+		{
+			descriptorIndex = (int)i;
+			i = recordDescriptor.size();
+		}
+	}
+	if(descriptorIindex == -1)
+	{
+		// Error if attributeName is not found in recordDescriptor
+		free(pageData);
+		return -1;
+	}
+	// Get the record
+	void *record = malloc(recordEntry.length);
+	getRecordAtOffset(pageData, recordEntry.offset, recordDescriptor, record);
+	// Get nullbits
+	int nullIndicatorSize = getNullIndicatorSize(recordDescriptor.size());
+	char nullIndicator[nullIndicatorSize];
+	memset(nullIndicator, 0, nullIndicatorSize);
+	memcpy(nullIndicator, (char*)record, nullIndicatorSize);
+	// Check null value
+	if(fieldIsNull(nullIndicator, descriptorIndex))
+	{
+		(char*)data = NULL;
+		free(pageData);
+		free(record);
+		return SUCCESS;
+	}
+	// Find field in null index
+	int nullIndex = 0;
+	for(i=0; i<recordDescriptor.size(); i++)
+	{
+		if( !fieldIsNull(nullIndicator,i) )
+		{
+			if(i == descriptorIndex)
+				i = recordDescriptor.size();
+			nullIndex++;
+			if(i == recordDescriptor.size() )
+				nullIndex--;
+		}
+	}
+	// Get field offset
+	void *offset = malloc(sizeof(int)*2);
+	int fieldOffset;
+	if(nullIndex == 0)
+	{
+		offset = (char*)record + nullIndicatorSize;
+		fieldOffset = *( (int*) offset);
+		int fieldStartOffset = recordEntry.offset + nullIndicatorSize;
+		memcpy( data, (char*)pageData + fieldStartOffset, fieldOffset - fieldStartOffset)
+	}
+	else
+	{
+		offset = (char*)record + nullIndicatorSize + (sizeof(int)*(nullIndex-1));
+		int prevFieldOffset = *( (int*) offset);
+		fieldOffset = *( (int*) offset + 1);
+		memcpy( data, (char*)pageData + prevFieldOffset, fieldOffset - prevFieldOffset);
+	}
+	free(pageData);
+	free(offset);
+	return SUCCESS;
+}
+
 RC RecordBasedFileManager::scan(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor,
 const string &conditionAttribute, const CompOp compOp, const void *value,
-const vector<string> &attributeNames, RBFM_ScanIterator
-&rbfm_ScanIterator)
+const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 {
     return -1;
 }
