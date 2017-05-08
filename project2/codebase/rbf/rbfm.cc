@@ -152,9 +152,29 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
     // Gets the slot directory record entry data
     SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry(pageData, rid.slotNum);
 
-    // Retrieve the actual entry data
-    getRecordAtOffset(pageData, recordEntry.offset, recordDescriptor, data);
-
+	// Record is forwarded or deleted
+	if(!isAlive(recordEntry))
+	{
+		if( recordEntry.length ==0 && recordEntry.offset ==0)
+		{
+			// Record has been deleted
+			free(pageData);
+			return -1;
+		}
+		else
+		{
+			// Record is forwarded
+			RID forwardRID;
+			forwardRID.pageNum = recordEntry.length;
+			forwardRID.slotNum = -1*recordEntry.offset;
+			readRecord(fileHandle,recordDescriptor,forwardRID,data);
+		}
+	}
+	else
+	{
+	    // Retrieve the actual entry data
+	    getRecordAtOffset(pageData, recordEntry.offset, recordDescriptor, data);
+	}
     free(pageData);
     return SUCCESS;
 }
@@ -283,9 +303,13 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
     //Check slot and make sure it is valid.
     SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
     
-	if(rid.slotNum >= slotHeader.recordEntriesNumber)
-		
-    else(rid.slotNum < slotHeader.recordEntriesNumber) {
+	if(slotHeader.recordEntriesNumber < rid.slotNum)
+	{
+		free(pageData);
+		return RBFM_SLOT_DN_EXIST;
+	}
+  	else
+	{
         SlotDirectoryRecordEntry slotEntry = getSlotDirectoryRecordEntry(pageData, rid.slotNum);
         //Entry is dead
         if(slotEntry.offset == 0) {
@@ -402,7 +426,7 @@ const RID &rid, const string &attributeName, void *data)
 		return RBFM_SLOT_DN_EXIST;
 	}
 	// Get the slot
-	SlotDirectoryRecordEntry recordEntry = getSlotDirectryRecordEntry(pageData,rid.slotNum);
+	SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry(pageData,rid.slotNum);
 	// Get index from vector<Attributes>
 	int descriptorIndex = -1;
 	unsigned i;
@@ -414,15 +438,22 @@ const RID &rid, const string &attributeName, void *data)
 			i = recordDescriptor.size();
 		}
 	}
-	if(descriptorIindex == -1)
+	if(descriptorIndex == -1)
 	{
 		// Error if attributeName is not found in recordDescriptor
 		free(pageData);
 		return -1;
 	}
 	// Get the record
-	void *record = malloc(recordEntry.length);
-	getRecordAtOffset(pageData, recordEntry.offset, recordDescriptor, record);
+	void *record = malloc(PAGE_SIZE);
+	if( readRecord(fileHandle, recordDescriptor,rid, record) != SUCCESS )
+	{
+		// Record has been deleted
+		free(pageData);
+		free(record);
+		return -1;
+	}
+
 	// Get nullbits
 	int nullIndicatorSize = getNullIndicatorSize(recordDescriptor.size());
 	char nullIndicator[nullIndicatorSize];
@@ -431,39 +462,40 @@ const RID &rid, const string &attributeName, void *data)
 	// Check null value
 	if(fieldIsNull(nullIndicator, descriptorIndex))
 	{
-		(char*)data = NULL;
+		data = NULL;
 		free(pageData);
 		free(record);
 		return SUCCESS;
 	}
 	// Find field in null index
 	int nullIndex = 0;
+	int nIndex = 0;
+	int aliveIndex = 0;
 	for(i=0; i<recordDescriptor.size(); i++)
 	{
 		if( !fieldIsNull(nullIndicator,i) )
 		{
-			if(i == descriptorIndex)
-				i = recordDescriptor.size();
-			nullIndex++;
-			if(i == recordDescriptor.size() )
-				nullIndex--;
+			if(i == (unsigned)descriptorIndex)
+				nullIndex = nIndex;
+			nIndex++;
+			aliveIndex++;
 		}
 	}
 	// Get field offset
-	void *offset = malloc(sizeof(int)*2);
-	int fieldOffset;
+	void *offset = malloc(sizeof(ColumnOffset)*2);
+	ColumnOffset fieldOffset;
 	if(nullIndex == 0)
 	{
 		offset = (char*)record + nullIndicatorSize;
-		fieldOffset = *( (int*) offset);
-		int fieldStartOffset = recordEntry.offset + nullIndicatorSize;
-		memcpy( data, (char*)pageData + fieldStartOffset, fieldOffset - fieldStartOffset)
+		fieldOffset = *( (ColumnOffset*) offset);
+		int fieldStartOffset = recordEntry.offset + nullIndicatorSize + (sizeof(ColumnOffset)*aliveIndex);
+		memcpy( data, (char*)pageData + fieldStartOffset, fieldOffset - fieldStartOffset);
 	}
 	else
 	{
-		offset = (char*)record + nullIndicatorSize + (sizeof(int)*(nullIndex-1));
-		int prevFieldOffset = *( (int*) offset);
-		fieldOffset = *( (int*) offset + 1);
+		offset = (char*)record + nullIndicatorSize + (sizeof(ColumnOffset)*(nullIndex-1));
+		int prevFieldOffset = *( (ColumnOffset*) offset);
+		fieldOffset = *( (ColumnOffset*) offset + 1);
 		memcpy( data, (char*)pageData + prevFieldOffset, fieldOffset - prevFieldOffset);
 	}
 	free(pageData);
