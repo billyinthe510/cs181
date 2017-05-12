@@ -507,6 +507,78 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle, const vector<Attribute> 
 const string &conditionAttribute, const CompOp compOp, const void *value,
 const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 {
+    RC RecordBasedFileManager::scan(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor,
+const string &conditionAttribute, const CompOp compOp, const void *value,
+const vector<string> &attributeNames, RBFM_ScanIterator
+&rbfm_ScanIterator)
+{
+    //check page
+    void *pageData = malloc(PAGE_SIZE);
+    if (pageData == NULL)
+        return RBFM_MALLOC_FAILED;
+    int i = 0;
+    //index = which field # it should be in record
+    int index = 0;
+    string myAttribute;
+    //get page
+    //get what attribute to search for
+    for(int k = 0; k < attributeNames.size(); k++) {
+        if(conditionAttribute.compare(attributeNames[k]) == 0) {
+            index = k;
+            myAttribute = conditionAttribute;
+        }
+    }
+    while(i < fileHandle.getNumberOfPages()) {
+        //for each page, go through all the slots and check for conditions
+        fileHandle.readPage(i, pageData);
+        //get the header
+        SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
+        
+        for(int j = 0; j < slotHeader.recordEntriesNumber; j++) {
+            //loop through records. get the records that satisfy the condition.
+            SlotDirectoryRecordEntry slotEntry = getSlotDirectoryRecordEntry(pageData, j);
+            RID tempRid;
+            tempRid.pageNum = i;
+            tempRid.slotNum = j;
+            void *data = malloc(slotEntry.length);
+            //slot is dead
+            if(slotEntry.offset == 0) {
+                //free(pageData);
+		//return RBFM_SLOT_DN_EXIST;
+            }
+            //slot is forwarded
+            else if(slotEntry.offset < 0) {
+                //do nothing? will go through everything anyways
+            }
+            //get the attribute. store into data
+            else {
+		    if(readAttribute(fileHandle, recordDescriptor, tempRid, conditionAttribute, data) != 0)){
+		        free(data);
+		        free(pageData);
+		        return -1;
+		    }
+		    switch(compOp) {
+			case EQ_OP:
+			    if(conditionAttribute.compare(attribute
+			    break;
+			case LT_OP:
+			    break;
+			case LE_OP:
+			    break;
+			case GT_OP:
+			    break;
+			case GE_OP:
+			    break;
+			case NE_OP:
+			    break;
+			case NO_OP:
+			    break;
+		    }  
+            }  
+        }
+    }
+    return -1;
+}
     return -1;
 }
 // Private helper methods
