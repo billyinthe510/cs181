@@ -430,12 +430,14 @@ const RID &rid, const string &attributeName, void *data)
 	// Get index from vector<Attributes>
 	int descriptorIndex = -1;
 	unsigned i;
+	AttrType type;
 	for(i=0; i<recordDescriptor.size(); i++)
 	{
 		if(recordDescriptor[i].name == attributeName)
 		{
 			descriptorIndex = (int)i;
 			i = recordDescriptor.size();
+			type = recordDescriptor[i].type;
 		}
 	}
 	if(descriptorIndex == -1)
@@ -458,11 +460,13 @@ const RID &rid, const string &attributeName, void *data)
 	int nullIndicatorSize = getNullIndicatorSize(recordDescriptor.size());
 	char nullIndicator[nullIndicatorSize];
 	memset(nullIndicator, 0, nullIndicatorSize);
-	memcpy(nullIndicator, (char*)record, nullIndicatorSize);
+	memcpy(nullIndicator, (char*)record + sizeof(RecordLength), nullIndicatorSize);
 	// Check null value
+	char nullIndicate;
 	if(fieldIsNull(nullIndicator, descriptorIndex))
 	{
-		data = NULL;
+		nullIndicate = ( 1 << 7);
+		memcpy(data, nullIndicate, sizeof(char) );
 		free(pageData);
 		free(record);
 		return SUCCESS;
@@ -481,25 +485,30 @@ const RID &rid, const string &attributeName, void *data)
 			aliveIndex++;
 		}
 	}
-	// Get field offset
+	// Set nullIndicator in returnedData
+	memset(nullIndicate, 0, sizeof(char) );
+	memcpy(data, nullIndicate, sizeof(char) );
+	
+	// Get field offset and data
 	void *offset = malloc(sizeof(ColumnOffset)*2);
 	ColumnOffset fieldOffset;
 	if(nullIndex == 0)
 	{
-		offset = (char*)record + nullIndicatorSize;
+		memcpy(offset, (char*)record + sizeof(RecordLength) + nullIndicatorSize, sizeof(ColumnOffset) );
 		fieldOffset = *( (ColumnOffset*) offset);
-		int fieldStartOffset = recordEntry.offset + nullIndicatorSize + (sizeof(ColumnOffset)*aliveIndex);
-		memcpy( data, (char*)pageData + fieldStartOffset, fieldOffset - fieldStartOffset);
+		int fieldStartOffset = sizeof(RecordLength) +  nullIndicatorSize + (sizeof(ColumnOffset)*aliveIndex);
+		memcpy(data+sizeof(char), (char*)record + fieldStartOffset, fieldOffset - fieldStartOffset);
 	}
 	else
 	{
-		offset = (char*)record + nullIndicatorSize + (sizeof(ColumnOffset)*(nullIndex-1));
+		memcpy(offset, (char*)record + sizeof(RecordLength) + nullIndicatorSize + (sizeof(ColumnOffset)*(nullIndex-1), (sizeof(ColumnOffset)*2) );
 		int prevFieldOffset = *( (ColumnOffset*) offset);
 		fieldOffset = *( (ColumnOffset*) offset + 1);
-		memcpy( data, (char*)pageData + prevFieldOffset, fieldOffset - prevFieldOffset);
+		memcpy(data+sizeof(char), (char*)record + prevFieldOffset, fieldOffset - prevFieldOffset);
 	}
 	free(pageData);
 	free(offset);
+	free(record);
 	return SUCCESS;
 }
 
@@ -507,78 +516,6 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle, const vector<Attribute> 
 const string &conditionAttribute, const CompOp compOp, const void *value,
 const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 {
-    RC RecordBasedFileManager::scan(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor,
-const string &conditionAttribute, const CompOp compOp, const void *value,
-const vector<string> &attributeNames, RBFM_ScanIterator
-&rbfm_ScanIterator)
-{
-    //check page
-    void *pageData = malloc(PAGE_SIZE);
-    if (pageData == NULL)
-        return RBFM_MALLOC_FAILED;
-    int i = 0;
-    //index = which field # it should be in record
-    int index = 0;
-    string myAttribute;
-    //get page
-    //get what attribute to search for
-    for(int k = 0; k < attributeNames.size(); k++) {
-        if(conditionAttribute.compare(attributeNames[k]) == 0) {
-            index = k;
-            myAttribute = conditionAttribute;
-        }
-    }
-    while(i < fileHandle.getNumberOfPages()) {
-        //for each page, go through all the slots and check for conditions
-        fileHandle.readPage(i, pageData);
-        //get the header
-        SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
-        
-        for(int j = 0; j < slotHeader.recordEntriesNumber; j++) {
-            //loop through records. get the records that satisfy the condition.
-            SlotDirectoryRecordEntry slotEntry = getSlotDirectoryRecordEntry(pageData, j);
-            RID tempRid;
-            tempRid.pageNum = i;
-            tempRid.slotNum = j;
-            void *data = malloc(slotEntry.length);
-            //slot is dead
-            if(slotEntry.offset == 0) {
-                //free(pageData);
-		//return RBFM_SLOT_DN_EXIST;
-            }
-            //slot is forwarded
-            else if(slotEntry.offset < 0) {
-                //do nothing? will go through everything anyways
-            }
-            //get the attribute. store into data
-            else {
-		    if(readAttribute(fileHandle, recordDescriptor, tempRid, conditionAttribute, data) != 0)){
-		        free(data);
-		        free(pageData);
-		        return -1;
-		    }
-		    switch(compOp) {
-			case EQ_OP:
-			    if(conditionAttribute.compare(attribute
-			    break;
-			case LT_OP:
-			    break;
-			case LE_OP:
-			    break;
-			case GT_OP:
-			    break;
-			case GE_OP:
-			    break;
-			case NE_OP:
-			    break;
-			case NO_OP:
-			    break;
-		    }  
-            }  
-        }
-    }
-    return -1;
-}
     return -1;
 }
 // Private helper methods
