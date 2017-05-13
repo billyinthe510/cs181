@@ -425,19 +425,17 @@ const RID &rid, const string &attributeName, void *data)
 		free(pageData);
 		return RBFM_SLOT_DN_EXIST;
 	}
-	// Get the slot
-	SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry(pageData,rid.slotNum);
 	// Get index from vector<Attributes>
 	int descriptorIndex = -1;
 	unsigned i;
-	AttrType type;
+//Attribute type;
 	for(i=0; i<recordDescriptor.size(); i++)
 	{
 		if(recordDescriptor[i].name == attributeName)
 		{
 			descriptorIndex = (int)i;
 			i = recordDescriptor.size();
-			type = recordDescriptor[i].type;
+//type = recordDescriptor[i].type;
 		}
 	}
 	if(descriptorIndex == -1)
@@ -466,7 +464,7 @@ const RID &rid, const string &attributeName, void *data)
 	if(fieldIsNull(nullIndicator, descriptorIndex))
 	{
 		nullIndicate = ( 1 << 7);
-		memcpy(data, nullIndicate, sizeof(char) );
+		memcpy(data, &nullIndicate, sizeof(char) );
 		free(pageData);
 		free(record);
 		return SUCCESS;
@@ -486,8 +484,8 @@ const RID &rid, const string &attributeName, void *data)
 		}
 	}
 	// Set nullIndicator in returnedData
-	memset(nullIndicate, 0, sizeof(char) );
-	memcpy(data, nullIndicate, sizeof(char) );
+	memset(&nullIndicate, 0, sizeof(char) );
+	memcpy(data, &nullIndicate, sizeof(char) );
 	
 	// Get field offset and data
 	void *offset = malloc(sizeof(ColumnOffset)*2);
@@ -497,14 +495,14 @@ const RID &rid, const string &attributeName, void *data)
 		memcpy(offset, (char*)record + sizeof(RecordLength) + nullIndicatorSize, sizeof(ColumnOffset) );
 		fieldOffset = *( (ColumnOffset*) offset);
 		int fieldStartOffset = sizeof(RecordLength) +  nullIndicatorSize + (sizeof(ColumnOffset)*aliveIndex);
-		memcpy(data+sizeof(char), (char*)record + fieldStartOffset, fieldOffset - fieldStartOffset);
+		memcpy((char*)data+sizeof(char), (char*)record + fieldStartOffset, fieldOffset - fieldStartOffset);
 	}
 	else
 	{
-		memcpy(offset, (char*)record + sizeof(RecordLength) + nullIndicatorSize + (sizeof(ColumnOffset)*(nullIndex-1), (sizeof(ColumnOffset)*2) );
+		memcpy(offset, (char*)record + sizeof(RecordLength) + nullIndicatorSize + (sizeof(ColumnOffset)*(nullIndex-1)), (sizeof(ColumnOffset)*2) );
 		int prevFieldOffset = *( (ColumnOffset*) offset);
 		fieldOffset = *( (ColumnOffset*) offset + 1);
-		memcpy(data+sizeof(char), (char*)record + prevFieldOffset, fieldOffset - prevFieldOffset);
+		memcpy((char*)data+sizeof(char), (char*)record + prevFieldOffset, fieldOffset - prevFieldOffset);
 	}
 	free(pageData);
 	free(offset);
