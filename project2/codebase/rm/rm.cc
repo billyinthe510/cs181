@@ -394,7 +394,9 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
     string fileName2 = ("Columns");
     rbfm->createFile(tableName);
 	Attribute attrCat;
-        
+    
+    unsigned int tableLen = 0;
+       
     // Catalog recordDescriptor. Using it to get the next tableId
     vector<Attribute> table_Data;
     
@@ -402,25 +404,25 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
     attrCat.type = TypeInt;
     attrCat.length = AttrLength(4);
     table_Data.push_back(attrCat);
-
+    tableLen += attrCat.length;
     
     attrCat.name = "table-name";
     attrCat.type = TypeVarChar;
     attrCat.length = AttrLength(50);
     table_Data.push_back(attrCat);
-
+    tableLen += attrCat.length;
     
     attrCat.name = "file-name";
     attrCat.type = TypeVarChar;
     attrCat.length = AttrLength(50);
     table_Data.push_back(attrCat);
-
+    tableLen += attrCat.length;
     // System or User table
     attrCat.name = "table-type";
     attrCat.type = TypeVarChar;
     attrCat.length = AttrLength(6);
     table_Data.push_back(attrCat);
-    
+    tableLen += attrCat.length;    
     // Column
     vector<Attribute> column_Data;
     Attribute attr2;
@@ -456,17 +458,13 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
     column_Data.push_back(attr2);
     columnLen += attr2.length;
 
-    unsigned int tableLen;
-    //length of the new table
-    for(unsigned i = 0; i < attrs.size(); i++) {
-        tableLen += attrs[i].length;
-    }
-	
+    
     //first update Catalog file Tables
-  
+    cout << "WHY: " << tableLen << endl;
     rbfm->openFile(fileName1, fileHandle);
     void *buffer = malloc(PAGE_SIZE);
-    fileHandle.readPage(0, buffer);
+    int numPages = fileHandle.getNumberOfPages();
+    fileHandle.readPage(numPages - 1, buffer);
     //get the slotHeader
     SlotDirectoryHeader slotHeader;
     memcpy(&slotHeader, buffer, sizeof(SlotDirectoryHeader));
@@ -481,7 +479,7 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
     string t_Type = "user";
     unsigned int t_typeLen = t_Type.length();
 	// Null-indicators
-    int nullFieldsIndicatorActualSize = ceil((double) attrs.size() / CHAR_BIT);
+    int nullFieldsIndicatorActualSize = ceil((double) table_Data.size() / CHAR_BIT);
     // Null-indicator for the fields
     unsigned char *nullsIndicator = (unsigned char *) malloc(nullFieldsIndicatorActualSize);
     memset(nullsIndicator, 0, nullFieldsIndicatorActualSize);
@@ -491,31 +489,32 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
     // table-id
     memcpy((char *) table + t_Offset, &t_ID, sizeof(int));
     t_Offset += sizeof(int);
-
+    cout << t_Offset << endl;
     // table-name
     memcpy((char *)table + t_Offset, &t_nameLen, sizeof(int));
     t_Offset += sizeof(int);
-
+    cout << t_Offset << endl;
     memcpy((char*)table + t_Offset, tableName.c_str(), t_nameLen);
     t_Offset += t_nameLen;
-
+    cout << t_Offset << endl;
     // file-name
     memcpy((char *)table + t_Offset, &t_nameLen, sizeof(int));
     t_Offset += sizeof(int);
-
+    cout << t_Offset << endl;
     memcpy((char*)table + t_Offset, tableName.c_str(), t_nameLen);
     t_Offset += t_nameLen;
-
+        cout << t_Offset << endl;
     // table-type
     memcpy((char *)table + t_Offset, &t_typeLen, sizeof(int));
     t_Offset += sizeof(int);
-
+    cout << t_Offset << endl;
     memcpy((char*)table + t_Offset, t_Type.c_str(), t_typeLen);
     t_Offset +=  t_typeLen;
-
+    cout << "LAST " << t_Offset << endl;
     rbfm->insertRecord(fileHandle, table_Data, table, rid);
-    //cout << "TRYING TO ADD COLUMNS TO CATALOG" << endl;
-    /*void *test = malloc(100);
+
+    //debug code
+    void *test = malloc(100);
     	//SlotDirectoryHeader slotHeader;
     //memcpy (&slotHeader, buffer, sizeof(SlotDirectoryHeader));
     
@@ -523,7 +522,8 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
 	rid.pageNum = 0;
     
     rbfm->readRecord(fileHandle, table_Data, rid, test);
-    rbfm->printRecord(table_Data, test);*/
+    rbfm->printRecord(table_Data, test);
+
     fileHandle.readPage(0, buffer);
     memcpy(&slotHeader, buffer, sizeof(SlotDirectoryHeader));
     //free(buffer);
@@ -581,15 +581,16 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
         offset +=  sizeof(int);
         
         rbfm->insertRecord(fileHandle, column_Data, col_Data, rid);
-       // void* test1 = malloc(100);
+       //debug code
+        void* test1 = malloc(100);
         //ColumnOffset test3 = attrs[i].name.length();
         //memcpy((char *) test1, &test3, sizeof(ColumnOffset));
-       // rbfm->readRecord(fileHandle, column_Data, rid, test1);
+       rbfm->readRecord(fileHandle, column_Data, rid, test1);
         //rbfm->readAttribute(fileHandle, column_Data, rid, attrs[i].name, test1);
         //for(int j = 0; j < 10; j++) 
             //cout << attrs[i].name << endl;
             //cout << rid1.slotNum << endl;  
-       // rbfm->printRecord(column_Data, test1);
+        rbfm->printRecord(column_Data, test1);
         free(col_Data);
     }
     free(nullsIndicator);	
