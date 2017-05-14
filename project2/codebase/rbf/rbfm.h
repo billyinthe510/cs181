@@ -106,9 +106,9 @@ public:
 
   vector<Attribute> recordDescriptor;
   vector<RID> rids;
+  FileHandle fileHandle;
 private:
 	unsigned cursor;
-	FileHandle fileHandle;
 };
 
 
@@ -170,7 +170,7 @@ IMPORTANT, PLEASE READ: All methods below this comment (other than the construct
       RBFM_ScanIterator &rbfm_ScanIterator);
 
 public:
-
+ bool fieldIsNull(char *nullIndicator, int i);
 protected:
   RecordBasedFileManager();
   ~RecordBasedFileManager();
@@ -193,7 +193,7 @@ private:
   unsigned getRecordSize(const vector<Attribute> &recordDescriptor, const void *data);
 
   int getNullIndicatorSize(int fieldCount);
-  bool fieldIsNull(char *nullIndicator, int i);
+//  bool fieldIsNull(char *nullIndicator, int i);
 
   void setRecordAtOffset(void *page, unsigned offset, const vector<Attribute> &recordDescriptor, const void *data);
   void getRecordAtOffset(void *record, unsigned offset, const vector<Attribute> &recordDescriptor, void *data); 
