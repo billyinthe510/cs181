@@ -535,7 +535,7 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
     
     //add to Catalog file Columns
     
-    for (int i = 0; i < attrs.size(); i++)
+    for (unsigned i = 0; i < attrs.size(); i++)
     {
 		//cout << columnLen;
         void *col_Data = malloc(columnLen + sizeof(int));
@@ -609,23 +609,22 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
 
 	// rbfm->open("Tables")
 	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
-	RBFM_ScanIterator &rmsi;
-	if(rbfm.openFile("Tables", rmsi.fileHandle))
-		return -1;
+	RBFM_ScanIterator rmsi;
+	if(rbfm->openFile("Tables", rmsi.fileHandle))
+		return RBFM_OPEN_FAILED;
 
 	// WHERE table-name == tableName
-	const string conditionAttribute = "table-name";
-	const CompOp compOp = EQ_OP;
-	const void *value;
+	string conditionAttribute = "table-name";
+	CompOp compOp = EQ_OP;
+	void *value = malloc(tableName.length() );
 	memcpy(value, &tableName, tableName.length() );
 
 	// SELECT table-id
-	const vector<string> attrNames;
-	string tableId = "table-id";
-	attrNames.push_back(tableId);
+	vector<string> attrNames;
+	attrNames.push_back("table-id");
 
 	// Create Tables recordDescriptor
-	const vector<Attribute> recordDescriptor;
+	vector<Attribute> recordDescriptor;
 	Attribute attr;
 	
 		// table-id
@@ -647,15 +646,17 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
 		recordDescriptor.push_back(attr);
 
 	// Scan for table-id for tableName in Tables
-	rbfm.scan(rmsi.fileHandle, recordDescriptor,conditionAttribute,compOp,value,
+	rbfm->scan(rmsi.fileHandle, recordDescriptor,conditionAttribute,compOp,value,
 		attrNames,rmsi);
-	RID rid
+
+	free(value);
+	RID rid;
 	int tableID = -1;
 	void *data = malloc(PAGE_SIZE);
 
 	while(rmsi.getNextRecord(rid,data) != RBFM_EOF)
 	{	
-		char *nullIndicator = malloc(1);
+		char *nullIndicator = (char*)malloc(sizeof(char));
 		bool nullbit = nullIndicator[0] & ( 1 << 7);
 		// If nullbit is null, table-id is NULL
 		if(nullbit)
@@ -665,7 +666,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
 		}
 		
 		// Otherwise get the table-id
-		tableID = *( (int*) ((char*)data + 1) );
+		tableID = *( (int*) ((char*)data + sizeof(char)) );
 
 		// Multiple table-ids associated with tableName
 		if(rmsi.getNextRecord(rid,data) != RBFM_EOF)
@@ -675,26 +676,26 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
 		}
 	}
 	rmsi.close();
+	free(data);
 
 	// tableName not found in Catalog
-	if(tableID = -1;)
+	if(tableID == -1)
 	{
-		free(data);
 		return -1;
 	}
 
 	// Open Columns file
-	if(rbfm.openFile("Columns",rmsi.fileHandle))
+	if(rbfm->openFile("Columns",rmsi.fileHandle))
 	{
 		// Columns does not exist!
-		free(data);
-		return -1;
+		return RBFM_OPEN_FAILED;
 	}
 
 	// WHERE table-id == tableID
 	conditionAttribute = "table-id";
 	compOp = EQ_OP;
-	memcpy(value, &tableID, sizeof(int) );	
+	value = malloc(INT_SIZE);
+	memcpy(value, &tableID, INT_SIZE );	
 
 	// SELECT column-name, column-type, column-length
 	attrNames.pop_back();	
@@ -739,15 +740,81 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
 		attr.length = AttrLength(4);
 		recordDescriptor.push_back(attr);
 
-	rbfm.scan(rmsi.fileHandle, recordDescriptor, conditionAttribute,compOp,value,
+	rbfm->scan(rmsi.fileHandle, recordDescriptor, conditionAttribute,compOp,value,
 		attrNames,rmsi);
-
+	free(value);
 	while(rmsi.getNextRecord(rid,data) != RBFM_EOF)
 	{
-		
+		// get null byte
+		char *nullField = (char*) malloc( sizeof(char) );
+		memset(nullField, 0, sizeof(char) );
+		memcpy(nullField, (char*)data, sizeof(char) );
+
+		// check if any field is null
+		int varcharsize = -1;
+		int offset = sizeof(char);
+		for(int i=0; i<3; i++)
+		{
+			if(!rbfm->fieldIsNull(nullField, i) )
+			{
+				switch(i)
+				{
+					case 0:
+					{
+						varcharsize = *( (int*) ( (char*)data + offset) );
+						offset += VARCHAR_LENGTH_SIZE;
+						char *name = (char*) malloc(varcharsize);
+						memcpy(name, (char*)data + offset, varcharsize);
+						offset += varcharsize;
+						
+						attr.name.assign(name, varcharsize);
+						free(name);
+						break;
+					}
+					case 1:
+					{
+						AttrType t = *( (AttrType*) ( (char*)data + offset) );
+						offset += INT_SIZE;
+						attr.type = t;
+						break;
+					}
+					case 2:
+					{
+						unsigned l = *( (unsigned*) ( (char*)data + offset) );
+						offset += INT_SIZE;
+						attr.length = l; 
+						break;
+					}
+				}
+			}
+			// field is null
+			else
+			{
+				switch(i)
+				{
+					case 0:
+					{
+						attr.name = "";
+						break;
+					}
+					case 1:
+					{
+						attr.type = TypeInt;
+						break;
+					}
+					case 2:
+					{
+						attr.length = 0;
+						break;
+					}
+				}
+			}
+		}
+		free(nullField);
+		attrs.push_back(attr);
 	}
 	rmsi.close();
-
+	free(data);
     return SUCCESS;
 }
 
