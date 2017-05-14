@@ -11,6 +11,39 @@
 RecordBasedFileManager* RecordBasedFileManager::_rbf_manager = NULL;
 PagedFileManager *RecordBasedFileManager::_pf_manager = NULL;
 
+RBFM_ScanIterator::RBFM_ScanIterator()
+{
+	cursor = 0;
+}
+RBFM_ScanIterator::~RBFM_ScanIterator()
+{
+	close();
+}
+RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
+{
+	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+	if(cursor < rids.size() )
+	{
+		rid = rids[cursor];
+		rbfm->readRecord(fileHandle,recordDescriptor,rid,data);
+		cursor++;
+	}
+	else
+		return RBFM_EOF;
+	return SUCCESS;
+}
+RC RBFM_ScanIterator::close()
+{
+	cursor = 0;
+	while(rids.size() > 0 )
+		rids.pop_back();
+	while(recordDescriptor.size() > 0)
+		recordDescriptor.pop_back();
+	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+	rbfm->closeFile(fileHandle);
+	return SUCCESS;
+}
+
 RecordBasedFileManager* RecordBasedFileManager::instance()
 {
     if(!_rbf_manager)
@@ -428,14 +461,12 @@ const RID &rid, const string &attributeName, void *data)
 	// Get index from vector<Attributes>
 	int descriptorIndex = -1;
 	unsigned i;
-//Attribute type;
 	for(i=0; i<recordDescriptor.size(); i++)
 	{
 		if(recordDescriptor[i].name == attributeName)
 		{
 			descriptorIndex = (int)i;
 			i = recordDescriptor.size();
-//type = recordDescriptor[i].type;
 		}
 	}
 	if(descriptorIndex == -1)
@@ -514,7 +545,194 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle, const vector<Attribute> 
 const string &conditionAttribute, const CompOp compOp, const void *value,
 const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 {
-    return -1;
+	// Set recordDescriptor in rmsi
+	// Also make sure attributeNames is a subset of recordDescriptor
+	AttrType type;
+	for(unsigned i=0; i<recordDescriptor.size(); i++)
+	{
+		bool found = false;
+		for(unsigned l=0; l<attributeNames.size(); l++)
+		{
+			if( strcmp(recordDescriptor[i].name.c_str(), attributeNames[l].c_str()) == 0 )
+				found = true;			
+		}
+		// if attributeNAmes is not in recordDescriptor, return error
+		if(!found)
+			return -1;
+		// check what type conditionAttribute is
+		if( strcmp(recordDescriptor[i].name.c_str(), conditionAttribute.c_str()) == 0 )
+			type = recordDescriptor[i].type;
+
+		// add to rmsi recordDescriptor
+		rbfm_ScanIterator.recordDescriptor.push_back(recordDescriptor[i]);	
+	}
+	
+	// Get number of pages
+	unsigned pageCount = fileHandle.getNumberOfPages();
+	// For each page in file, scan records
+	void *page = malloc(PAGE_SIZE);
+	for(unsigned j=0; j<pageCount; j++)
+	{
+		// read page
+		fileHandle.readPage(j,page);
+		// get slot directory header
+		SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(page);
+		// for # slots in page
+		for(uint16_t k = 0; k < slotHeader.recordEntriesNumber; k++)
+		{
+			// get slot entry
+			SlotDirectoryRecordEntry slotEntry = getSlotDirectoryRecordEntry(page,k);
+			// if slot is alive, readAttribute
+			if(isAlive(slotEntry) )		
+			{
+				void *data = malloc(PAGE_SIZE);
+				RID rid;
+				rid.pageNum = j;
+				rid.slotNum = k;
+				readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, data);
+				// if attribute is not NULL then check condition
+				char nullIndicator;
+				memcpy(&nullIndicator, data, sizeof(char) );
+				if( !(nullIndicator & (1<<7) ) )
+				{
+					switch(type)
+					{
+						case TypeVarChar:
+						{
+							int len;
+							memcpy(&len, (char*)data + sizeof(char), VARCHAR_LENGTH_SIZE);
+							char *varchar = (char*) malloc(len + 1);
+							if(varchar == NULL)
+								return RBFM_MALLOC_FAILED;
+							memcpy(varchar, (char*)data + sizeof(char) + VARCHAR_LENGTH_SIZE, len);
+							varchar[len] = '\0';
+							
+							int valueLen;
+							memcpy(&valueLen, (char*)value, VARCHAR_LENGTH_SIZE);
+							char *str = (char*) malloc(valueLen + 1);
+							if(str == NULL)
+								return RBFM_MALLOC_FAILED;
+							memcpy(str, (char*)value + VARCHAR_LENGTH_SIZE, valueLen);
+							str[valueLen] = '\0';
+							
+							switch(compOp)
+							{
+								case(EQ_OP):
+									if(strcmp(varchar,str) == 0)
+										rbfm_ScanIterator.rids.push_back(rid);
+								break;
+								case(LT_OP):
+									if(strcmp(varchar,str) < 0)
+										rbfm_ScanIterator.rids.push_back(rid);
+								break;
+								case(LE_OP):
+									if(strcmp(varchar,str) <= 0)
+										rbfm_ScanIterator.rids.push_back(rid);
+								break;
+								case(GT_OP):
+									if(strcmp(varchar,str) > 0)
+										rbfm_ScanIterator.rids.push_back(rid);
+								break;
+								case(GE_OP):
+									if(strcmp(varchar,str) >= 0)
+										rbfm_ScanIterator.rids.push_back(rid);
+								break;	  
+								case(NE_OP):
+									if(strcmp(varchar,str) != 0)
+										rbfm_ScanIterator.rids.push_back(rid);
+								break;
+								case(NO_OP):
+									rbfm_ScanIterator.rids.push_back(rid);
+								break;	  	  	     
+							}
+							break;
+						}
+						case TypeReal:
+						{
+							float real;
+							memcpy(&real, (char*)data + sizeof(char), REAL_SIZE);
+							float cond;
+							memcpy(&cond, value, REAL_SIZE );
+							switch(compOp)
+							{
+								case(EQ_OP):
+									if(real == cond)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  
+								case(LT_OP):
+									if(real < cond)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  
+								case(LE_OP):
+									if(real <= cond)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  	  
+								case(GT_OP):
+									if(real > cond)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  
+								case(GE_OP):
+									if(real >= cond)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  	  
+								case(NE_OP):
+									if(real != cond)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  
+								case(NO_OP):
+									rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  	  	     
+							}
+							break;			
+						}
+						case TypeInt:
+						{
+							int val;
+							memcpy(&val, (char*)data + sizeof(char), INT_SIZE);
+							int condition;
+							memcpy(&condition, value, INT_SIZE );
+							switch(compOp)
+							{
+								case(EQ_OP):
+									if(val == condition)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  
+								case(LT_OP):
+									if(val < condition)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  
+								case(LE_OP):
+									if(val <= condition)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  	  
+								case(GT_OP):
+									if(val > condition)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  
+								case(GE_OP):
+									if(val >= condition)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  	  
+								case(NE_OP):
+									if(val != condition)
+										rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  
+								case(NO_OP):
+									rbfm_ScanIterator.rids.push_back(rid);
+									break;	  	  	  	  	  	  	  	  	  	     
+							}
+							break;
+						}
+					}
+				}
+				free(data);
+			}
+		}	
+
+	}
+	free(page);
+
+    return SUCCESS;
 }
 // Private helper methods
 
@@ -814,3 +1032,4 @@ void RecordBasedFileManager::compact(FileHandle &fileHandle, const RID &rid, voi
 
 	free(records);	
 }
+

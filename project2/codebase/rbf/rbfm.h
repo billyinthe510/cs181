@@ -92,16 +92,23 @@ The scan iterator is NOT required to be implemented for the part 1 of the projec
 //  }
 //  rbfmScanIterator.close();
 
-class RBFM_ScanIterator {
+class RBFM_ScanIterator
+{
 public:
-  RBFM_ScanIterator() {};
-  ~RBFM_ScanIterator() {};
+  RBFM_ScanIterator();
+  ~RBFM_ScanIterator();
 
   // Never keep the results in the memory. When getNextRecord() is called, 
   // a satisfying record needs to be fetched from the file.
   // "data" follows the same format as RecordBasedFileManager::insertRecord().
-  RC getNextRecord(RID &rid, void *data) { return RBFM_EOF; };
-  RC close() { return -1; };
+  RC getNextRecord(RID &rid, void *data);
+  RC close();
+
+  vector<Attribute> recordDescriptor;
+  vector<RID> rids;
+private:
+	unsigned cursor;
+	FileHandle fileHandle;
 };
 
 
@@ -190,6 +197,7 @@ private:
 
   void setRecordAtOffset(void *page, unsigned offset, const vector<Attribute> &recordDescriptor, const void *data);
   void getRecordAtOffset(void *record, unsigned offset, const vector<Attribute> &recordDescriptor, void *data); 
+
   void compact(FileHandle &fileHandle, const RID &rid, void *page);
   RC isAlive(SlotDirectoryRecordEntry slotEntry);
 };
