@@ -53,12 +53,12 @@ For deletes, if a slot entry is "dead", we reuse it if a record fits in that pag
 5. File Format
 - Show your file format design
 
-The name of the "table-name" in our catalog matches the RBF "file-name" associated with it.
-
-
+For our catalogs, the name of the "table-name" in our catalog matches the RBF "file-name" associated with it. Tables table is "Tables", and our columns table is "Columns". We use these names to check and restrict access to certain functions in our rm.
 
 6. Implementation Detail
 - Other implementation details goes here.
+
+We added two helper functions in our rbfm implementation. isAlive checks if a slot entry is "alive". If not, it's either "dead" or moved. Our compact() function makes sure that there aren't "holes" in a page. That is, when a record is deleted or moved, the free space is compacted, rather than leaving the page with holes of "free spaces". With this approach, we can maximize the available free space per page. Our compact() function gathers the alive slots entries in the current page, updates the slot entry offsets if the currentSlot is dead, reclaims/compacts the available free space by subracting the length of the currentSlot with the freesSpace offset, and then updates the Slot Header's freeSpaceOffset. We then write the compacted records on disk.
 
 
 7. Other (optional)
