@@ -112,12 +112,22 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
     if (pageData == NULL)
         return RBFM_MALLOC_FAILED;
     bool pageFound = false;
+	bool deadSlotFound = false;
+	int deadSlot = -1;
     unsigned i;
     unsigned numPages = fileHandle.getNumberOfPages();
     for (i = 0; i < numPages; i++)
     {
         if (fileHandle.readPage(i, pageData))
             return RBFM_READ_FAILED;
+
+	// Look for dead slot first
+	deadSlot = checkForDeadSlots(pageData);
+	if( (deadSlot >= 0) && getPageFreeSpaceSize(pageData) >= recordSize)
+	{
+		deadSlotFound = true;
+		break;
+	}
 
         // When we find a page with enough space (accounting also for the size that will be added to the slot directory), we stop the loop.
         if (getPageFreeSpaceSize(pageData) >= sizeof(SlotDirectoryRecordEntry) + recordSize)
@@ -128,7 +138,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
     }
 
     // If we can't find a page with enough space, we create a new one
-    if(!pageFound)
+    if(!pageFound && !deadSlotFound)
     {
         newRecordBasedPage(pageData);
     }
@@ -137,7 +147,11 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 
     // Setting the return RID.
     rid.pageNum = i;
-    rid.slotNum = slotHeader.recordEntriesNumber;
+    
+if(deadSlotFound)
+	rid.slotNum = deadSlot;
+else
+	rid.slotNum = slotHeader.recordEntriesNumber;
 
     // Adding the new record reference in the slot directory.
     SlotDirectoryRecordEntry newRecordEntry;
@@ -148,14 +162,15 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 
     // Updating the slot directory header.
     slotHeader.freeSpaceOffset = newRecordEntry.offset;
-    slotHeader.recordEntriesNumber += 1;
+if(!deadSlotFound)
+	slotHeader.recordEntriesNumber += 1;
     setSlotDirectoryHeader(pageData, slotHeader);
 
     // Adding the record data.
     setRecordAtOffset (pageData, newRecordEntry.offset, recordDescriptor, data);
 
     // Writing the page to disk.
-    if (pageFound)
+    if (pageFound || deadSlotFound)
     {
         if (fileHandle.writePage(i, pageData))
             return RBFM_WRITE_FAILED;
@@ -294,12 +309,9 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
     // Alive
     if (recordEntry.offset > 0)
     {
-        //slotHeader.freeSpaceOffset += recordEntry.offset;
         recordEntry.offset = 0;
         recordEntry.length = 0;
         setSlotDirectoryRecordEntry(pageData, rid.slotNum, recordEntry);
-        //setSlotDirectoryHeader(pageData, slotHeader);
-        
         compact(fileHandle, rid, pageData);
         rc = 0;
         
@@ -383,6 +395,9 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
                     //delete first? then write to page?
                     
                     deleteRecord(fileHandle, recordDescriptor, rid);
+
+			// get updated slot header
+			slotHeader = getSlotDirectoryHeader(pageData);
                     //update slot directory
                     slotEntry.length = recordSize;
                     slotEntry.offset = slotHeader.freeSpaceOffset - recordSize;
@@ -401,6 +416,9 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
                     //+slotEntry.length because deleting previous version of the record
                     if(getPageFreeSpaceSize(pageData) + slotEntry.length >= recordSize) {
                         deleteRecord(fileHandle, recordDescriptor, rid);
+
+				// get updated slot header
+				slotHeader = getSlotDirectoryHeader(pageData);
                         //update slot directory
                         slotEntry.length = recordSize;
                         slotEntry.offset = slotHeader.freeSpaceOffset - recordSize;
@@ -985,13 +1003,12 @@ void RecordBasedFileManager::compact(FileHandle &fileHandle, const RID &rid, voi
 	// Get slot header
 	SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(page);
 	unsigned slotsOccupied = (unsigned) slotHeader.recordEntriesNumber;
-
 	// Gather alive slots
 	SlotDirectoryRecordEntry currentSlot;
 	unsigned recordSpace = 0;
 	void *records = malloc(PAGE_SIZE);
 
-	for(unsigned i = slotsOccupied-1; i >= 0; i--)
+	for(int i = slotsOccupied-1; i >= 0; i--)
 	{
 		// Get current slot
 		currentSlot = getSlotDirectoryRecordEntry(page,i);
@@ -1005,7 +1022,6 @@ void RecordBasedFileManager::compact(FileHandle &fileHandle, const RID &rid, voi
 			recordSpace += currentSlot.length;
 		}
 	}
-
 	// Update slot entry offsets
 	unsigned freeSpace = PAGE_SIZE;
 	for( unsigned j = 0; j < slotsOccupied; j++)
@@ -1031,5 +1047,18 @@ void RecordBasedFileManager::compact(FileHandle &fileHandle, const RID &rid, voi
 	fileHandle.writePage(rid.pageNum, page);
 
 	free(records);	
+}
+
+int RecordBasedFileManager::checkForDeadSlots(void *page)
+{
+	SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(page);
+	int recordEntriesNum = slotHeader.recordEntriesNumber;
+	for(int i = 0; i < recordEntriesNum; i++)
+	{
+		SlotDirectoryRecordEntry slot = getSlotDirectoryRecordEntry(page, i);
+		if(slot.offset == 0 && slot.length == 0)
+			return i;
+	}
+	return -1;
 }
 

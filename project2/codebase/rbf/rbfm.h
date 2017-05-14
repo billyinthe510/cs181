@@ -169,13 +169,13 @@ IMPORTANT, PLEASE READ: All methods below this comment (other than the construct
       const vector<string> &attributeNames, // a list of projected attributes
       RBFM_ScanIterator &rbfm_ScanIterator);
 
-public:
- bool fieldIsNull(char *nullIndicator, int i);
+//public:
+
 protected:
   RecordBasedFileManager();
   ~RecordBasedFileManager();
 
-private:
+public:
   static RecordBasedFileManager *_rbf_manager;
   static PagedFileManager *_pf_manager;
 
@@ -193,11 +193,12 @@ private:
   unsigned getRecordSize(const vector<Attribute> &recordDescriptor, const void *data);
 
   int getNullIndicatorSize(int fieldCount);
-//  bool fieldIsNull(char *nullIndicator, int i);
+  bool fieldIsNull(char *nullIndicator, int i);
 
   void setRecordAtOffset(void *page, unsigned offset, const vector<Attribute> &recordDescriptor, const void *data);
   void getRecordAtOffset(void *record, unsigned offset, const vector<Attribute> &recordDescriptor, void *data); 
 
+ int checkForDeadSlots(void *page);
   void compact(FileHandle &fileHandle, const RID &rid, void *page);
   RC isAlive(SlotDirectoryRecordEntry slotEntry);
 };
