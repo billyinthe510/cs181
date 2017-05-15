@@ -24,7 +24,7 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
 	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
 	if(cursor < rids.size() )
 	{
-		rid = rids[cursor];
+		rid = rids[cursor];		
 		rbfm->readRecord(fileHandle,recordDescriptor,rid,data);
 		cursor++;
 	}
@@ -481,7 +481,7 @@ const RID &rid, const string &attributeName, void *data)
 	unsigned i;
 	for(i=0; i<recordDescriptor.size(); i++)
 	{
-		if(recordDescriptor[i].name == attributeName)
+		if( strcmp(recordDescriptor[i].name.c_str(),attributeName.c_str()) == 0 )
 		{
 			descriptorIndex = (int)i;
 			i = recordDescriptor.size();
@@ -507,7 +507,7 @@ const RID &rid, const string &attributeName, void *data)
 	int nullIndicatorSize = getNullIndicatorSize(recordDescriptor.size());
 	char nullIndicator[nullIndicatorSize];
 	memset(nullIndicator, 0, nullIndicatorSize);
-	memcpy(nullIndicator, (char*)record + sizeof(RecordLength), nullIndicatorSize);
+	memcpy(nullIndicator, (char*)record, nullIndicatorSize);
 	// Check null value
 	char nullIndicate;
 	if(fieldIsNull(nullIndicator, descriptorIndex))
@@ -537,25 +537,56 @@ const RID &rid, const string &attributeName, void *data)
 	memcpy(data, &nullIndicate, sizeof(char) );
 	
 	// Get field offset and data
-	void *offset = malloc(sizeof(ColumnOffset)*2);
-	ColumnOffset fieldOffset;
+	AttrType type = recordDescriptor[nullIndex].type;
+
 	if(nullIndex == 0)
 	{
-		memcpy(offset, (char*)record + sizeof(RecordLength) + nullIndicatorSize, sizeof(ColumnOffset) );
-		fieldOffset = *( (ColumnOffset*) offset);
-		int fieldStartOffset = sizeof(RecordLength) +  nullIndicatorSize + (sizeof(ColumnOffset)*aliveIndex);
-		memcpy((char*)data+sizeof(char), (char*)record + fieldStartOffset, fieldOffset - fieldStartOffset);
+		if(type == TypeVarChar)
+		{
+			uint32_t vLength;
+			memcpy(&vLength, (char*)record + nullIndicatorSize, VARCHAR_LENGTH_SIZE);
+			memcpy((char*)data + sizeof(char), (char*) record + nullIndicatorSize, VARCHAR_LENGTH_SIZE + vLength);
+		}
+		else
+		{
+			memcpy( (char*)data + sizeof(char), (char*)record + nullIndicatorSize, INT_SIZE);
+		}
 	}
 	else
 	{
-		memcpy(offset, (char*)record + sizeof(RecordLength) + nullIndicatorSize + (sizeof(ColumnOffset)*(nullIndex-1)), (sizeof(ColumnOffset)*2) );
-		int prevFieldOffset = *( (ColumnOffset*) offset);
-		fieldOffset = *( (ColumnOffset*) offset + 1);
-		memcpy((char*)data+sizeof(char), (char*)record + prevFieldOffset, fieldOffset - prevFieldOffset);
+		int offset = nullIndicatorSize;
+		for(int p=0; p<recordDescriptor.size();p++)
+		{
+			if( p == nullIndex)
+				break;
+			else if(fieldIsNull(nullIndicator,p))
+				continue;
+			else
+			{
+				uint32_t vL;
+				if(recordDescriptor[p].type == TypeVarChar)
+				{
+					memcpy(&vL, (char*)record + offset, VARCHAR_LENGTH_SIZE);
+					offset += VARCHAR_LENGTH_SIZE + vL;
+				}
+				else
+					offset += INT_SIZE;
+			}
+		}
+		if(type == TypeVarChar)
+		{
+			uint32_t varlength;
+			memcpy(&varlength, (char*) record + offset, VARCHAR_LENGTH_SIZE);
+			memcpy((char*)data + sizeof(char),(char*)record + offset, VARCHAR_LENGTH_SIZE+varlength);
+		}
+		else
+		{
+			memcpy((char*)data + sizeof(char), (char*)record + offset, INT_SIZE);
+		}
 	}
 	free(pageData);
-	free(offset);
 	free(record);
+
 	return SUCCESS;
 }
 
@@ -566,23 +597,30 @@ const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 	// Set recordDescriptor in rmsi
 	// Also make sure attributeNames is a subset of recordDescriptor
 	AttrType type;
-	for(unsigned i=0; i<recordDescriptor.size(); i++)
+	for(unsigned i=0; i<attributeNames.size(); i++)
 	{
+
 		bool found = false;
-		for(unsigned l=0; l<attributeNames.size(); l++)
+		for(unsigned l=0; l<recordDescriptor.size(); l++)
 		{
-			if( strcmp(recordDescriptor[i].name.c_str(), attributeNames[l].c_str()) == 0 )
-				found = true;			
+			if( strcmp(attributeNames[i].c_str(), recordDescriptor[l].name.c_str()) == 0 )
+			{
+				found = true;
+				break;
+			}
 		}
 		// if attributeNAmes is not in recordDescriptor, return error
 		if(!found)
 			return -1;
-		// check what type conditionAttribute is
-		if( strcmp(recordDescriptor[i].name.c_str(), conditionAttribute.c_str()) == 0 )
-			type = recordDescriptor[i].type;
+	}
 
+	// check what type conditionAttribute is
+	for(unsigned m=0; m<recordDescriptor.size(); m++)
+	{
 		// add to rmsi recordDescriptor
-		rbfm_ScanIterator.recordDescriptor.push_back(recordDescriptor[i]);	
+		rbfm_ScanIterator.recordDescriptor.push_back(recordDescriptor[m]);
+		if( strcmp(recordDescriptor[m].name.c_str(), conditionAttribute.c_str()) == 0)
+			type = recordDescriptor[m].type;
 	}
 	
 	// Get number of pages
@@ -607,32 +645,37 @@ const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 				RID rid;
 				rid.pageNum = j;
 				rid.slotNum = k;
-				readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, data);
+				if(readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, data))
+				{
+					cout<<"readAttribute Failed! "<<endl;
+					return -1;
+				}
 				// if attribute is not NULL then check condition
 				char nullIndicator;
 				memcpy(&nullIndicator, data, sizeof(char) );
+
+
 				if( !(nullIndicator & (1<<7) ) )
 				{
 					switch(type)
 					{
 						case TypeVarChar:
 						{
-							int len;
-							memcpy(&len, (char*)data + sizeof(char), VARCHAR_LENGTH_SIZE);
+							uint32_t len;
+							memcpy(&len,(char*)data+sizeof(char), VARCHAR_LENGTH_SIZE);
 							char *varchar = (char*) malloc(len + 1);
 							if(varchar == NULL)
 								return RBFM_MALLOC_FAILED;
 							memcpy(varchar, (char*)data + sizeof(char) + VARCHAR_LENGTH_SIZE, len);
 							varchar[len] = '\0';
-							
-							int valueLen;
+							uint32_t valueLen;
 							memcpy(&valueLen, (char*)value, VARCHAR_LENGTH_SIZE);
 							char *str = (char*) malloc(valueLen + 1);
 							if(str == NULL)
 								return RBFM_MALLOC_FAILED;
-							memcpy(str, (char*)value + VARCHAR_LENGTH_SIZE, valueLen);
+							memcpy((char*)str, (char*)value + VARCHAR_LENGTH_SIZE, valueLen);
 							str[valueLen] = '\0';
-							
+				
 							switch(compOp)
 							{
 								case(EQ_OP):
@@ -663,6 +706,8 @@ const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 									rbfm_ScanIterator.rids.push_back(rid);
 								break;	  	  	     
 							}
+							free(varchar);
+							free(str);
 							break;
 						}
 						case TypeReal:
@@ -1018,7 +1063,7 @@ void RecordBasedFileManager::compact(FileHandle &fileHandle, const RID &rid, voi
 		// Slot is alive
 		else
 		{
-			memcpy( records, (char *)page+currentSlot.offset, currentSlot.length);
+			memcpy( records + recordSpace, (char *)page+currentSlot.offset, currentSlot.length);
 			recordSpace += currentSlot.length;
 		}
 	}
