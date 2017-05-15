@@ -538,23 +538,19 @@ RC TEST_RM_10(const string &tableName, vector<RID> &rids, vector<int> &sizes)
     
     readRIDsFromDisk(rids, numTuples);
     readSizesFromDisk(sizes, numTuples);
-
     // GetAttributes
     vector<Attribute> attrs;
     RC rc = rm->getAttributes(tableName, attrs);
     assert(rc == success && "RelationManager::getAttributes() should not fail.");
-
     int nullAttributesIndicatorActualSize = getActualByteForNullsIndicator(attrs.size());
     unsigned char *nullsIndicator = (unsigned char *) malloc(nullAttributesIndicatorActualSize);
 	memset(nullsIndicator, 0, nullAttributesIndicatorActualSize);
-
     // Update the first 1000 tuples
     int size = 0;
     for(int i = 0; i < 1000; i++)
     {
         memset(tuple, 0, 2000);
         RID rid = rids[i];
-
         prepareLargeTuple(attrs.size(), nullsIndicator, i+10, tuple, &size);
         rc = rm->updateTuple(tableName, tuple, rid);
         assert(rc == success && "RelationManager::updateTuple() should not fail.");
@@ -562,16 +558,15 @@ RC TEST_RM_10(const string &tableName, vector<RID> &rids, vector<int> &sizes)
         sizes[i] = size;
         rids[i] = rid;
     }
-
     // Read the updated records and check the integrity
     for(int i = 0; i < 1000; i++)
     {
+cout<<"i: "<<i<<endl;
         memset(tuple, 0, 2000);
         memset(returnedData, 0, 2000);
         prepareLargeTuple(attrs.size(), nullsIndicator, i+10, tuple, &size);
-        rc = rm->readTuple(tableName, rids[i], returnedData);
+       rc = rm->readTuple(tableName, rids[i], returnedData);
         assert(rc == success && "RelationManager::readTuple() should not fail.");
-
         if(memcmp(returnedData, tuple, sizes[i]) != 0)
         {
             cout << "***** [FAIL] Test Case 10 Failed *****" << endl << endl;
@@ -580,7 +575,7 @@ RC TEST_RM_10(const string &tableName, vector<RID> &rids, vector<int> &sizes)
             return -1;
         }
     }
-
+cout<<" got here"<<endl;
     free(tuple);
     free(returnedData);
 

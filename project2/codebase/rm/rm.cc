@@ -11,6 +11,39 @@
 
 RelationManager* RelationManager::_rm = 0;
 
+RM_ScanIterator::RM_ScanIterator()
+{
+	cursor = 0;
+}
+RM_ScanIterator::~RM_ScanIterator()
+{
+	close();
+}
+RC RM_ScanIterator::getNextTuple(RID &rid, void *data)
+{
+	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+	if(cursor < rids.size() )
+	{
+		rid = rids[cursor];
+		rbfm->readRecord(fileHandle, recordDescriptor, rid, data);
+		cursor++;
+	}
+	else
+		return RM_EOF;
+	return SUCCESS;
+}
+RC RM_ScanIterator::close()
+{
+	cursor = 0;
+	while(rids.size() > 0 )
+		rids.pop_back();
+	while(recordDescriptor.size() > 0)
+		recordDescriptor.pop_back();
+	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+	rbfm->closeFile(fileHandle);
+	return SUCCESS;
+}
+
 RelationManager* RelationManager::instance()
 {
     if(!_rm)
@@ -615,7 +648,6 @@ RC RelationManager::deleteTable(const string &tableName)
     struct stat stFileInfo;
     if (stat(tableName.c_str(), &stFileInfo) != 0)
         return -1;
-    
     RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
     FileHandle fileHandle;
     RM_ScanIterator rmsi;
@@ -628,7 +660,6 @@ RC RelationManager::deleteTable(const string &tableName)
     {
         return -1;
     }
-    
     vector<string> t_ID = {"table-id"};
     
     int t_NameLength = tableName.length();
@@ -642,9 +673,7 @@ RC RelationManager::deleteTable(const string &tableName)
         free(data);
         rbfm->closeFile(fileHandle);
         rmsi.close();
-        return -1;
     }
-    
     if (rmsi.getNextTuple(rid, page) != RM_EOF)
     {
         int offset = 0;
@@ -660,8 +689,6 @@ RC RelationManager::deleteTable(const string &tableName)
     {
         return -1;
     }
-    
-    // Delete tuple from Tables table
     if(rbfm->deleteRecord(fileHandle, recordDescriptor, rid))
    	{
 		cout<<"failed to delete"<<endl;
@@ -1025,7 +1052,8 @@ RC RelationManager::readTuple(const string &tableName, const RID &rid, void *dat
         return -1;
     }
     
-    getAttributes(t_Name, recordDescriptor);
+    if(getAttributes(t_Name, recordDescriptor))
+	return -1;
     if(rbfm->readRecord(fileHandle, recordDescriptor, rid, data))
 	return -1;
     if(rbfm->closeFile(fileHandle))
@@ -1070,5 +1098,17 @@ RC RelationManager::scan(const string &tableName,
                          const vector<string> &attributeNames,
                          RM_ScanIterator &rm_ScanIterator)
 {
-    return -1;
+    RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+	FileHandle fileHandle;
+	if( rbfm->openFile(tableName, fileHandle))
+		return -1;
+	vector<Attribute> recordDescriptor;
+	getAttributes(tableName, recordDescriptor);
+	RBFM_ScanIterator rbfmsi;
+	if(rbfm->scan(fileHandle, recordDescriptor, conditionAttribute, compOp, value, attributeNames, rbfmsi))
+		return -1;
+	rm_ScanIterator.rids = rbfmsi.rids;
+	rm_ScanIterator.fileHandle = fileHandle;
+	rm_ScanIterator.recordDescriptor = recordDescriptor;
+	return 0;
 }

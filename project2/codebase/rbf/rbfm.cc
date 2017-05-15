@@ -395,6 +395,7 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
                     //delete first? then write to page?
                     
                     deleteRecord(fileHandle, recordDescriptor, rid);
+			fileHandle.readPage(rid.pageNum,pageData);
 
 			// get updated slot header
 			slotHeader = getSlotDirectoryHeader(pageData);
@@ -412,11 +413,12 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
                 //Not enough free space for the record in the page
                 else {
                     compact(fileHandle, rid, pageData);
+			fileHandle.readPage(rid.pageNum,pageData);
                     //check free space again
                     //+slotEntry.length because deleting previous version of the record
                     if(getPageFreeSpaceSize(pageData) + slotEntry.length >= recordSize) {
                         deleteRecord(fileHandle, recordDescriptor, rid);
-
+				fileHandle.readPage(rid.pageNum,pageData);
 				// get updated slot header
 				slotHeader = getSlotDirectoryHeader(pageData);
                         //update slot directory
@@ -434,6 +436,8 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
                     else {
                         //delete record. then insert to a different page update slotEntry.offset,length 
                         deleteRecord(fileHandle, recordDescriptor, rid);
+			fileHandle.readPage(rid.pageNum,pageData);
+
                         //insert record somewhere else
                         RID forwardRid;
                         insertRecord(fileHandle, recordDescriptor, data, forwardRid);
@@ -473,6 +477,7 @@ const RID &rid, const string &attributeName, void *data)
 	SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
 	if(slotHeader.recordEntriesNumber < rid.slotNum)
 	{
+cout<<"crashed here3"<<endl;
 		free(pageData);
 		return RBFM_SLOT_DN_EXIST;
 	}
@@ -489,6 +494,7 @@ const RID &rid, const string &attributeName, void *data)
 	}
 	if(descriptorIndex == -1)
 	{
+cout<<"crash here"<<endl;
 		// Error if attributeName is not found in recordDescriptor
 		free(pageData);
 		return -1;
@@ -497,12 +503,12 @@ const RID &rid, const string &attributeName, void *data)
 	void *record = malloc(PAGE_SIZE);
 	if( readRecord(fileHandle, recordDescriptor,rid, record) != SUCCESS )
 	{
+cout<<"crashed here2"<<endl;
 		// Record has been deleted
 		free(pageData);
 		free(record);
 		return -1;
 	}
-
 	// Get nullbits
 	int nullIndicatorSize = getNullIndicatorSize(recordDescriptor.size());
 	char nullIndicator[nullIndicatorSize];
@@ -538,7 +544,6 @@ const RID &rid, const string &attributeName, void *data)
 	
 	// Get field offset and data
 	AttrType type = recordDescriptor[nullIndex].type;
-
 	if(nullIndex == 0)
 	{
 		if(type == TypeVarChar)
@@ -645,9 +650,17 @@ const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 				RID rid;
 				rid.pageNum = j;
 				rid.slotNum = k;
+
+				if(compOp == NO_OP)
+				{
+					rbfm_ScanIterator.rids.push_back(rid);
+				}
+else
+{
 				if(readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, data))
 				{
 					cout<<"readAttribute Failed! "<<endl;
+					free(page);
 					return -1;
 				}
 				// if attribute is not NULL then check condition
@@ -788,6 +801,7 @@ const vector<string> &attributeNames, RBFM_ScanIterator &rbfm_ScanIterator)
 						}
 					}
 				}
+			}
 				free(data);
 			}
 		}	
