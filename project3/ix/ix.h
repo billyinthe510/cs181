@@ -8,6 +8,13 @@
 
 # define IX_EOF (-1)  // end of the index scan
 
+#define IX_CREATE_FAILED 10
+#define IX_OPEN_FAILED 11
+#define IX_APPEND_FAILED 12
+#define IX_DESTROY_FAILED 13
+#define IX_CLOSE_FAILED 14
+#define IX_MALLOC_FAILED 15
+
 class IX_ScanIterator;
 class IXFileHandle;
 
@@ -45,6 +52,8 @@ class IndexManager {
 
         // Print the B+ tree in pre-order (in a JSON record format)
         void printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const;
+	// Helper functions
+	bool isIndexFile(const string &fileName);
 
     protected:
         IndexManager();
@@ -52,6 +61,7 @@ class IndexManager {
 
     private:
         static IndexManager *_index_manager;
+	static PagedFileManager *pfm;
 };
 
 
@@ -89,7 +99,10 @@ class IXFileHandle {
 
 	// Put the current counter values of associated PF FileHandles into variables
 	RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);
-
+	void setfd(FILE *fd);
+	FILE *getfd();
+private:
+	FILE *fd;
 };
 
 #endif
