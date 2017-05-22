@@ -1,5 +1,17 @@
 
 #include "ix.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <iomanip>
+#include <iostream>
+#include <string>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+
 
 IndexManager* IndexManager::_index_manager = 0;
 
@@ -24,6 +36,7 @@ RC IndexManager::createFile(const string &fileName)
 {
 	// Creating a new paged file
    	string ixFile = fileName + ".ix";
+        //cout << pfm->createFile(ixFile);
 	if(pfm->createFile(ixFile))
 		return IX_CREATE_FAILED;
 	
@@ -31,15 +44,15 @@ RC IndexManager::createFile(const string &fileName)
 	void *firstPageData = calloc(PAGE_SIZE, 1);
 	if(firstPageData == NULL)
 		return IX_MALLOC_FAILED;
-	newRecordBasedPage(firstPageData);
+	//newRecordBasedPage(firstPageData);
 
 	// Adds the first index based page
 	FileHandle fileHandle;
-	if (pfm->openFile(fileName.c_str(), fileHandle) )
+	if (pfm->openFile(ixFile.c_str(), fileHandle) )
 		return IX_OPEN_FAILED;
 	if(fileHandle.appendPage(firstPageData))
 		return IX_APPEND_FAILED;
-	pfm->closeFile(fileHadle);
+	pfm->closeFile(fileHandle);
 
 	free(firstPageData);
 
@@ -48,30 +61,32 @@ RC IndexManager::createFile(const string &fileName)
 
 RC IndexManager::destroyFile(const string &fileName)
 {
-	if( !isIndexFile(fileName))
+        string ixFile = fileName + ".ix";
+	if( !isIndexFile(ixFile))
 	    return IX_DESTROY_FAILED;
-	return pfm->destroyFile(fileName);
+	return pfm->destroyFile(ixFile);
 }
 
 RC IndexManager::openFile(const string &fileName, IXFileHandle &ixfileHandle)
 {
+        string ixFile = fileName + ".ix";
 	// Validate index file
-	if( !isIndexFile(fileName))
+	if( !isIndexFile(ixFile))
 		return IX_OPEN_FAILED;
 	
 	// If this handle already has an open file, error
 	if( ixfileHandle.getfd() != NULL)
 		return PFM_HANDLE_IN_USE;
 	// If the file doesn't exist, error
-	if( !fileExists(fileName.c_str()))
+	if( !fileExists(ixFile.c_str()))
 		return PFM_FILE_DN_EXIST;
 	// Open the file for reading/writing in binary mode
 	FILE *pFile;
-	pFile = fopen(fileName.c_str(),"rb+");
+	pFile = fopen(ixFile.c_str(),"rb+");
 	// If failed to open, error
 	if( pFile == NULL)
 		return IX_OPEN_FAILED;
-	
+	cout <<"did not fail" << endl;
 	ixfileHandle.setfd(pFile);
 
 	return SUCCESS;
@@ -79,8 +94,8 @@ RC IndexManager::openFile(const string &fileName, IXFileHandle &ixfileHandle)
 
 RC IndexManager::closeFile(IXFileHandle &ixfileHandle)
 {
-	if( !isIndexFile(fileName))
-		return IX_CLOSE_FAILED;
+	//if( !isIndexFile(fileName))
+	//	return IX_CLOSE_FAILED;
 	FILE *pFile = ixfileHandle.getfd();
 
 	// If not an open file, error
@@ -142,7 +157,7 @@ IXFileHandle::IXFileHandle()
     ixReadPageCounter = 0;
     ixWritePageCounter = 0;
     ixAppendPageCounter = 0;
-	fd = NULL;
+	_fd = NULL;
 }
 
 IXFileHandle::~IXFileHandle()
@@ -159,14 +174,22 @@ RC IXFileHandle::collectCounterValues(unsigned &readPageCount, unsigned &writePa
 
 void IXFileHandle::setfd(FILE *fd)
 {
-	fd = fd;
+	_fd = fd;
 }
 FILE *IXFileHandle::getfd()
 {
-	return fd;
+	return _fd;
 }
 // HELPER FUNCTIONS
-bool IXFileManager::isIndexFile(const string &fileName)
+bool IndexManager::isIndexFile(const string &fileName)
 {
-	return  strcmp( fileName.substr(fileName.size()-3) , ".ix") == 0
+	return  strcmp( fileName.substr(fileName.size()-3).c_str() , ".ix") == 0;
+}
+
+
+bool IndexManager::fileExists(const string &fileName)
+{
+    // If stat fails, we can safely assume the file doesn't exist
+    struct stat sb;
+    return stat(fileName.c_str(), &sb) == 0;
 }

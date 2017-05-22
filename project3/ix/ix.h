@@ -5,6 +5,7 @@
 #include <string>
 
 #include "../rbf/rbfm.h"
+#include "../rbf/pfm.h"
 
 # define IX_EOF (-1)  // end of the index scan
 
@@ -61,7 +62,9 @@ class IndexManager {
 
     private:
         static IndexManager *_index_manager;
-	static PagedFileManager *pfm;
+	 PagedFileManager *pfm;
+        bool fileExists(const string &fileName);
+
 };
 
 
@@ -102,7 +105,7 @@ class IXFileHandle {
 	void setfd(FILE *fd);
 	FILE *getfd();
 private:
-	FILE *fd;
+	FILE *_fd;
 };
 
 #endif
