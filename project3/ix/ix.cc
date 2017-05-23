@@ -44,7 +44,7 @@ RC IndexManager::createFile(const string &fileName)
 	void *firstPageData = calloc(PAGE_SIZE, 1);
 	if(firstPageData == NULL)
 		return IX_MALLOC_FAILED;
-	//newRecordBasedPage(firstPageData);
+	newIndexBasedPage(firstPageData);
 
 	// Adds the first index based page
 	FileHandle fileHandle;
@@ -86,7 +86,6 @@ RC IndexManager::openFile(const string &fileName, IXFileHandle &ixfileHandle)
 	// If failed to open, error
 	if( pFile == NULL)
 		return IX_OPEN_FAILED;
-	cout <<"did not fail" << endl;
 	ixfileHandle.setfd(pFile);
 
 	return SUCCESS;
@@ -193,3 +192,19 @@ bool IndexManager::fileExists(const string &fileName)
     struct stat sb;
     return stat(fileName.c_str(), &sb) == 0;
 }
+void IndexManager::setIndexHeader(void *data, IndexHeader ixHeader) 
+{
+    memcpy (data, &ixHeader, sizeof(IndexHeader));
+}
+
+void IndexManager::newIndexBasedPage(void* data) 
+{
+    memset(data, 0, PAGE_SIZE);
+    // Writes the slot directory header.
+    IndexHeader ixHeader;
+    ixHeader.freeSpaceOffset = PAGE_SIZE;
+    ixHeader.indexEntriesNumber = 0;
+    setIndexHeader(data, ixHeader);
+}
+
+

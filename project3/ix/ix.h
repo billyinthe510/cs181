@@ -16,6 +16,12 @@
 #define IX_CLOSE_FAILED 14
 #define IX_MALLOC_FAILED 15
 
+typedef struct IndexHeader
+{
+    uint16_t freeSpaceOffset;
+    uint16_t indexEntriesNumber;
+} IndexHeader;
+
 class IX_ScanIterator;
 class IXFileHandle;
 
@@ -64,6 +70,8 @@ class IndexManager {
         static IndexManager *_index_manager;
 	 PagedFileManager *pfm;
         bool fileExists(const string &fileName);
+        void newIndexBasedPage(void *data);
+        void setIndexHeader(void *data, IndexHeader ixHeader);
 
 };
 
