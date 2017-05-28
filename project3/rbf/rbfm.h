@@ -34,7 +34,7 @@ typedef struct
 
 
 // Attribute
-typedef enum { TypeInt = 0, TypeReal, TypeVarChar } AttrType;
+typedef enum { TypeInt = 0, TypeReal, TypeVarChar, TypeNull} AttrType;
 // 
 typedef enum { VALID = 0, MOVED, DEAD} SlotStatus;
 

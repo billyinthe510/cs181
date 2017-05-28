@@ -15,11 +15,16 @@
 #define IX_DESTROY_FAILED 13
 #define IX_CLOSE_FAILED 14
 #define IX_MALLOC_FAILED 15
+#define IX_NULL_FILE 16
 
 typedef struct IndexHeader
 {
     uint16_t freeSpaceOffset;
     uint16_t indexEntriesNumber;
+    bool isLeafPage;
+    uint32_t parent;
+    uint32_t left;
+    uint32_t right;
 } IndexHeader;
 
 class IX_ScanIterator;
@@ -72,14 +77,14 @@ class IndexManager {
         bool fileExists(const string &fileName);
         void newIndexBasedPage(void *data);
         void setIndexHeader(void *data, IndexHeader ixHeader);
-
+	IndexHeader getIndexHeader(void *data);
 };
 
 
 class IX_ScanIterator {
     public:
 
-		// Constructor
+	// Constructor
         IX_ScanIterator();
 
         // Destructor
@@ -108,12 +113,20 @@ class IXFileHandle {
     // Destructor
     ~IXFileHandle();
 
+    RC readPage(PageNum pageNum, void *data);
+    RC writePage(PageNum pageNum, const void *data);
+    RC appendPage(const void*data);
+    unsigned getNumberOfPages();
+
 	// Put the current counter values of associated PF FileHandles into variables
 	RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);
 	void setfd(FILE *fd);
 	FILE *getfd();
+	void setAttr(AttrType type);
+	AttrType getAttr();
 private:
 	FILE *_fd;
+	AttrType attr_type;
 };
 
 #endif
