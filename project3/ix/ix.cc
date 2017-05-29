@@ -36,33 +36,34 @@ RC IndexManager::createFile(const string &fileName)
 {
 	// Creating a new paged file
    	string ixFile = fileName + ".ix";
-        //cout << pfm->createFile(ixFile);
 	if(pfm->createFile(ixFile))
 		return IX_CREATE_FAILED;
-	
+
 	// Setting up the first page
-	void *firstPageData = calloc(PAGE_SIZE, 1);
+	void *firstPageData = malloc(PAGE_SIZE);
 	if(firstPageData == NULL)
 		return IX_MALLOC_FAILED;
 	newIndexBasedPage(firstPageData);
 
 	// Add p0 pointer to page 1
-	unsigned p0 = 1;
-	memcpy( firstPageData + sizeof(IndexHeader), &p0, sizeof(unsigned) );
+	uint32_t p0 = 1;
+	memcpy( ((char*)firstPageData + sizeof(IndexHeader)), &p0, INT_SIZE );
 
 	// Adds the first index based page
 	FileHandle fileHandle;
+	
 	if (pfm->openFile(ixFile.c_str(), fileHandle) )
 	{	
 		free(firstPageData);
 		return IX_OPEN_FAILED;
-	}	
+	}
+	
 	if(fileHandle.appendPage(firstPageData))
 	{
 		free(firstPageData);
 		return IX_APPEND_FAILED;
 	}
-
+	
 	// Add empty leaf page pointed to by p0
 	free(firstPageData);
 	void *firstLeafPage = calloc(PAGE_SIZE, 1);
@@ -75,7 +76,7 @@ RC IndexManager::createFile(const string &fileName)
 	ixHeader = getIndexHeader(firstLeafPage);
 	ixHeader.isLeafPage = true;
 		// For leaf pages, subtract the p0 pointer from freespace
-	ixHeader.freeSpaceOffset -= sizeof(unsigned);
+	ixHeader.freeSpaceOffset -= INT_SIZE;
 	ixHeader.parent = 0;
 	setIndexHeader(firstLeafPage, ixHeader);
 	if(fileHandle.appendPage(firstLeafPage))
@@ -151,136 +152,34 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attrib
     rc = ixfileHandle.readPage(0, pageData);
     if( rc != SUCCESS)
     {
-	// Failed to read page 0
+	// Failed to read page 0q
   	free(pageData);
 	return rc;
     }
     // Get index header
     IndexHeader ixHeader;
     ixHeader = getIndexHeader(pageData);
-    uint16_t freeSpace = ixHeader.freeSpaceOffset;
+
     // If indexEntriesNmber is 0 then tree must be empty
     if( ixHeader.indexEntriesNumber == 0)
+	// helper function frees pageData for us
+	return insertIntoEmptyTree(ixfileHandle, attribute, key, rid, pageData);
+
+    // Else follow "traffic cops" 
+    //     until leaf page is found
+    //     pass in page0 for fewer I/Os
+    uint32_t leafPage = findLeafPage(ixfileHandle, attribute, key, pageData);
+    if( leafPage == -1)
     {
-	// Set index file's attribute type
-	ixfileHandle.setAttr(attribute.type);
-
-	// add key value to root node 
-	switch(attribute.type)
-	{
-		case TypeInt:
-		{
-			memcpy(pageData + freeSpace, key, INT_SIZE);
-			freeSpace += INT_SIZE;
-			break;
-		}
-		case TypeReal:
-		{
-			memcpy(pageData + freeSpace, key, REAL_SIZE);
-			freeSpace += REAL_SIZE;
-			break;
-		}
-		case TypeVarChar:
-		{
-			int varcharlen;
-			memcpy(&varcharlen, key, INT_SIZE);
-			memcpy(pageData + freeSpace, key, INT_SIZE + varcharlen);
-			freeSpace += INT_SIZE + varcharlen;
-			break;
-		}
-	}
-	// add p1 pointer to root node (2 or next pageNum)
-	unsigned p1 = ixfileHandle.getNumberOfPages();
-	memcpy(pageData + freeSpace, &p1, sizeof(unsigned));
-	freeSpace += sizeof(unsigned);	
-	// update header
-	ixHeader.indexEntriesNumber = 1;
-	ixHeader.freeSpaceOffset = freeSpace;
-	setIndexHeader(pageData, ixHeader);
-	// write root page to disk
-	if( ixfileHandle.writePage(0, pageData))
-	{
-		free(pageData);
-		return FH_WRITE_FAILED;
-	}
+	// Could not find a leaf page must be logic error somewhere
 	free(pageData);
+	return ERROR_FINDING_LEAF_PAGE;
+    }   
 
-	// set up a leaf page for first index entry
-	void *leafPageData = malloc(PAGE_SIZE);
-	newIndexBasedPage(leafPageData);
-	ixHeader = getIndexHeader(leafPageData);
-	freeSpace = ixHeader.freeSpaceOffset;
-	ixHeader.isLeafPage = true;
-	// for leaf pages, remove the default p0 pointer from freeSpaceOffset
-	freeSpace -= sizeof(unsigned);
-	// add data entry key value to leaf node
-	switch(attribute.type)
-	{
-		case TypeInt:
-		{
-			memcpy(leafPageData + freeSpace, key, INT_SIZE);
-			freeSpace += INT_SIZE;
-			break;
-		}
-		case TypeReal:
-		{
-			memcpy(leafPageData + freeSpace, key, REAL_SIZE);
-			freeSpace += REAL_SIZE;
-			break;
-		}
-		case TypeVarChar:
-		{
-			int varlen;
-			memcpy(&varlen, key, INT_SIZE);
-			memcpy(leafPageData + freeSpace, key, INT_SIZE + varlen);
-			freeSpace += INT_SIZE + varlen;
-			break;
-		}
-	}
-	// add data entry RID to leaf node
-	memcpy(leafPageData + freeSpace, &rid, sizeof(RID));
-	freeSpace += sizeof(RID);
-	// update leaf page's header
-	ixHeader.freeSpaceOffset = freeSpace;
-	ixHeader.parent = 0;
-	ixHeader.left = 1;
-	ixHeader.indexEntriesNumber = 1;
-	setIndexEntriesNumber(leafPageData, ixHeader);
-	// write leaf page to disk
-	if( ixfileHandle.appendPage(leafPageData))
-	{
-		free(leafPageData);
-		return IX_APPEND_FAILED;
-	}
-	free(leafPageData);
 
-	// update p0's neighbor
-	void *p0 = malloc(PAGE_SIZE);
-	if( p0 == NULL)
-		return  IX_MALLOC_FAILED;
 
-	rc = ixfileHandle.readPage(1, p0);
-	if( rc != SUCCESS)
-	{
-		// failed to read page 1
-		free(p0);
-		return rc;
-	}
-	// get index header
-	ixHeader = getIndexHeader(p0);
-	// set right child of p0's page to newly appended page (could be 2 or could be different pageNum)
-	ixHeader.right = ixfileHandle.getNumberOfPages() - 1;
-	setIndexHeader(p0, ixHeader);
-	// write p0's page 1 to disk
-	if( ixfileHandle.writePage(1, p0))
-	{
-		free(p0);
-		return FH_WRITE_FAILED;
-	}
-	free(p0);
 
-	return SUCCESS;
-    } 	
+    return SUCCESS;
 }
 
 RC IndexManager::deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
@@ -302,9 +201,10 @@ RC IndexManager::scan(IXFileHandle &ixfileHandle,
 
 
 
-void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const {
-}
+void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const
+{
 
+}
 IX_ScanIterator::IX_ScanIterator()
 {
 }
@@ -433,7 +333,6 @@ bool IndexManager::isIndexFile(const string &fileName)
 	return  strcmp( fileName.substr(fileName.size()-3).c_str() , ".ix") == 0;
 }
 
-
 bool IndexManager::fileExists(const string &fileName)
 {
     // If stat fails, we can safely assume the file doesn't exist
@@ -453,7 +352,7 @@ void IndexManager::newIndexBasedPage(void* data)
     memset(data, 0, PAGE_SIZE);
     // Writes the slot directory header.
     IndexHeader ixHeader;
-    ixHeader.freeSpaceOffset = sizeof(IndexHeader) + sizeof(unsigned);
+    ixHeader.freeSpaceOffset = sizeof(IndexHeader) + INT_SIZE;
     ixHeader.indexEntriesNumber = 0;
     ixHeader.isLeafPage = false;
     ixHeader.parent = -1;
@@ -462,4 +361,277 @@ void IndexManager::newIndexBasedPage(void* data)
     setIndexHeader(data, ixHeader);
 }
 
+RC IndexManager::insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, void *pageData)
+{
+    // Get index header
+    IndexHeader ixHeader;
+    ixHeader = getIndexHeader(pageData);
+    uint16_t freeSpace = ixHeader.freeSpaceOffset;
+	
+	// Set index file's attribute type
+	ixfileHandle.setAttr(attribute.type);
+
+	// add key value to root node
+	NonLeafEntry newEntry;
+	newEntry.child = 2;
+	switch(attribute.type)
+	{
+		case TypeInt:
+		{
+			newEntry.size = INT_SIZE;
+			memcpy( (char*)pageData + freeSpace, &newEntry, sizeof(NonLeafEntry));
+			freeSpace += sizeof(NonLeafEntry);
+
+			memcpy( (char*)pageData + freeSpace, key, INT_SIZE);
+			freeSpace += INT_SIZE;
+			break;
+		}
+		case TypeReal:
+		{
+			newEntry.size = REAL_SIZE;
+			memcpy( (char*)pageData + freeSpace, &newEntry, sizeof(NonLeafEntry));
+			freeSpace += sizeof(NonLeafEntry);
+
+			memcpy( (char*)pageData + freeSpace, key, REAL_SIZE);
+			freeSpace += REAL_SIZE;
+			break;
+		}
+		case TypeVarChar:
+		{
+			int varcharlen;
+			memcpy(&varcharlen, key, INT_SIZE);
+			newEntry.size = varcharlen;
+			memcpy( (char*)pageData + freeSpace, &newEntry, sizeof(NonLeafEntry));
+			freeSpace += sizeof(NonLeafEntry);
+
+			memcpy( (char*)pageData + freeSpace, (char*)key + INT_SIZE, varcharlen);
+			freeSpace += varcharlen;
+			break;
+		}
+		default:
+		{
+			break;
+		}
+	}
+	// update header
+	ixHeader.indexEntriesNumber = 1;
+	ixHeader.freeSpaceOffset = freeSpace;
+	setIndexHeader(pageData, ixHeader);
+	// write root page to disk
+	if( ixfileHandle.writePage(0, pageData))
+	{
+		free(pageData);
+		return FH_WRITE_FAILED;
+	}
+	// prevent memory leak
+	free(pageData);
+
+	// set up a leaf page for first index entry
+	void *leafPageData = malloc(PAGE_SIZE);
+	newIndexBasedPage(leafPageData);
+	ixHeader = getIndexHeader(leafPageData);
+	freeSpace = ixHeader.freeSpaceOffset;
+	ixHeader.isLeafPage = true;
+	// for leaf pages, remove the default p0 pointer from freeSpaceOffset
+	freeSpace -= INT_SIZE;
+	// add data entry key value to leaf node
+	LeafEntry newDataEntry;
+	newDataEntry.rid = rid;
+	switch(attribute.type)
+	{
+		case TypeInt:
+		{
+			newDataEntry.size = INT_SIZE;
+			memcpy( (char*)leafPageData + freeSpace, &newDataEntry, sizeof(LeafEntry));
+			freeSpace += sizeof(LeafEntry);
+
+			memcpy( (char*)leafPageData + freeSpace, key, INT_SIZE);
+			freeSpace += INT_SIZE;
+			break;
+		}
+		case TypeReal:
+		{
+			newDataEntry.size = REAL_SIZE;
+			memcpy( (char*)leafPageData + freeSpace, &newDataEntry, sizeof(LeafEntry));
+			freeSpace += sizeof(LeafEntry);
+
+			memcpy( (char*)leafPageData + freeSpace, key, REAL_SIZE);
+			freeSpace += REAL_SIZE;
+			break;
+		}
+		case TypeVarChar:
+		{
+			int varlen;
+			memcpy(&varlen, key, INT_SIZE);
+			newDataEntry.size = varlen;
+			memcpy( (char*)leafPageData + freeSpace, &newDataEntry, sizeof(LeafEntry));
+			freeSpace += sizeof(LeafEntry);
+
+			memcpy( (char*)leafPageData + freeSpace, (char*)key + INT_SIZE, varlen);
+			freeSpace += varlen;
+			break;
+		}
+		default:
+		{
+			break;
+		}
+	}
+	// update leaf page's header
+	ixHeader.freeSpaceOffset = freeSpace;
+	ixHeader.parent = 0;
+	ixHeader.left = 1;
+	ixHeader.indexEntriesNumber = 1;
+	setIndexHeader(leafPageData, ixHeader);
+	// write leaf page to disk
+	if( ixfileHandle.appendPage(leafPageData))
+	{
+		free(leafPageData);
+		return IX_APPEND_FAILED;
+	}
+	// prevent memory leak
+	free(leafPageData);
+
+	// update p0's neighbor (right sibling)
+	void *p0 = malloc(PAGE_SIZE);
+	if( p0 == NULL)
+		return  IX_MALLOC_FAILED;
+
+	RC rc;
+	rc = ixfileHandle.readPage(1, p0);
+	if( rc != SUCCESS)
+	{
+		// failed to read page 1
+		free(p0);
+		return rc;
+	}
+	// get index header
+	ixHeader = getIndexHeader(p0);
+	// set right child of p0's page to newly appended page (could be 2 or could be different pageNum)
+	ixHeader.right = 2;
+	setIndexHeader(p0, ixHeader);
+	// write p0's page 1 to disk
+	if( ixfileHandle.writePage(1, p0))
+	{
+		free(p0);
+		return FH_WRITE_FAILED;
+	}
+	// prevent memory leak
+	free(p0);
+
+	return SUCCESS;
+}
+
+
+uint32_t IndexManager::getNextChild(void* pageData, const Attribute &attribute, const void* key)
+{
+    // Read the root page header
+    IndexHeader rootHeader;
+    memcpy(&rootHeader, pageData, sizeof(IndexHeader));
+    // Get the number of entries
+    int numEntries = rootHeader.indexEntriesNumber;
+	// Read through the non-leaf entry until found suitable page pointer
+    int offset = sizeof(IndexHeader) + INT_SIZE;
+    uint32_t p0;
+    memcpy(&p0, ((char*) pageData + sizeof(IndexHeader)),  INT_SIZE);
+
+	NonLeafEntry *prevEntry;	
+    int prevSize = 0;
+    for(int i = 0; i < numEntries; i++) 
+    {
+        // get the next entry
+        NonLeafEntry *entry;
+        memcpy(entry, ((char*)pageData + offset), sizeof(NonLeafEntry));
+		offset += sizeof(NonLeafEntry);
+        // read the value in the entry. Compare with key
+        switch(attribute.type) 
+        {
+            case(TypeInt):
+			{
+	            int nextInt;
+	            int keyInt;
+	            memcpy(&keyInt, key, INT_SIZE);
+	            memcpy(&nextInt, ((char*)pageData + offset), INT_SIZE);
+				offset += INT_SIZE;
+	
+				// return p0 if key is less than first search key value            
+	            if(i == 0 && keyInt < nextInt)
+	             	return p0;
+				// return previous key's child pointer if key is less than current search key value
+	            if( keyInt < nextInt)
+				{
+					// get prevEntry's child
+					memcpy(prevEntry, ((char*)pageData + offset - (2*INT_SIZE) - (2*sizeof(NonLeafPage))), sizeof(NonLeafPage));
+					return prevEntry->child;	
+	            }
+				// return last page pointer if key is greater than or equal to last search key value entry
+	            if(i == numEntries - 1 && keyInt >= nextInt)
+					return entry->child;
+
+            	break; 
+			}
+            case(TypeReal):
+	        { 
+			    float nextReal;
+	            float keyReal;
+	            memcpy(&keyReal, key, sizeof(int));
+	            memcpy(&nextReal, ((char*) pageData + offset), REAL_SIZE);
+	            offset += REAL_SIZE;
+				
+				// return p0 if key is less than first search key value
+	            if(i == 0 && keyReal < nextReal)
+	            	return p0;
+				// return previous key's child pointer if key is less than current search key value	   
+	            if(keyReal < nextReal)
+	            {
+					// get prevEntry's child
+	                memcpy(prevEntry, ((char*)pageData + offset - (2*REAL_SIZE) - (2*sizeof(NonLeafPage))), sizeof(NonLeafPage));
+	                return prevEntry->child;
+	            }
+				// return last page pointer if key is greater than or equal to last search key value entry
+	            if(i == numEntries - 1 && keyReal >= nextReal)
+	              	return entry->child;
+					
+	        	break;
+            }
+			case(TypeVarChar):
+	        { 
+				// get key value
+			    int length;
+	            memcpy(&length, (char*)key, INT_SIZE);
+	            char* keyVarChar = (char*) malloc(length);
+	            memcpy(keyVarChar, (char*)key + INT_SIZE, length);
+	            // get current search key value
+				int nextLength = entry->size;
+	            char* nextVarChar = (char*)malloc(nextLength);  
+	            memcpy(nextVarChar, (char*) pageData + offset, nextLength);
+	            offset += nextLength;
+
+				// return p0 if key is less than first search key value
+	            if(i == 0 && strcmp(keyVarChar, nextVarChar) < 0)
+	              	return p0;
+				// return previous key's child poiter if key is less than current search key value
+				// guaranteed to be not p0 (first page pointer)
+	            if(strcmp(keyVarChar ,nextVarChar) < 0)
+	           	{
+	                memcpy(prevEntry, (char*)pageData + offset - nextLength - (2*sizeof(NonLeafPage)) - prevSize, sizeof(NonLeafPage));
+	                return prevEntry->child;
+	            }
+				// return last page pointer if key is greater than or equal to last search key value entry   
+	            if(i == numEntries - 1 && strcmp(keyVarChar, nextVarChar) >= 0)
+	    			return entry->child;
+					
+				// keep track of current length
+	            prevSize = nextLength;    
+	            free(keyVarChar);
+	            free(nextVarChar);            
+	        	break;
+			}
+			default:
+			{
+				break;
+			}
+        }
+    } 
+    return ERROR_FINDING_LEAF_PAGE;
+}
 

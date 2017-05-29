@@ -16,6 +16,7 @@
 #define IX_CLOSE_FAILED 14
 #define IX_MALLOC_FAILED 15
 #define IX_NULL_FILE 16
+#define ERROR_FINDING_LEAF_PAGE 17
 
 typedef struct IndexHeader
 {
@@ -26,6 +27,17 @@ typedef struct IndexHeader
     uint32_t left;
     uint32_t right;
 } IndexHeader;
+
+typedef struct NonLeafEntry{
+	int size;
+	uint32_t child;
+}NonLeafEntry;
+
+typedef struct LeafEntry{
+	int size;
+	RID rid;
+} LeafEntry;
+
 
 class IX_ScanIterator;
 class IXFileHandle;
@@ -66,6 +78,8 @@ class IndexManager {
         void printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const;
 	// Helper functions
 	bool isIndexFile(const string &fileName);
+	RC insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, void *pageData);
+	uint32_t getNextChild(void* pageData, const Attribute &attribute, const void* key);
 
     protected:
         IndexManager();
