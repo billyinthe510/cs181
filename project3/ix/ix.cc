@@ -169,15 +169,23 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attrib
     //     until leaf page is found
     //     pass in page0 for fewer I/Os
     uint32_t leafPage = findLeafPage(ixfileHandle, attribute, key, pageData);
-    if( leafPage == -1)
+    if( leafPage == 0)
     {
 	// Could not find a leaf page must be logic error somewhere
 	free(pageData);
-	return ERROR_FINDING_LEAF_PAGE;
-    }   
-
-
-
+	return POINTER_ERROR;
+    }
+    // get leaf page 
+    rc = ixfileHandle.readPage(leafPage, pageData);
+    if( rc != SUCCESS)
+    {
+	free(pageData);
+	return rc;
+    }
+    // insert data into leaf page
+    // helper function will free pageData
+    if( insertIntoLeafPage(ixfileHandle, attribute, key, rid, leafPage, pageData))
+	return -1;
 
     return SUCCESS;
 }
@@ -521,7 +529,6 @@ RC IndexManager::insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute
 	return SUCCESS;
 }
 
-
 uint32_t IndexManager::getNextChild(void* pageData, const Attribute &attribute, const void* key)
 {
     // Read the root page header
@@ -529,109 +536,245 @@ uint32_t IndexManager::getNextChild(void* pageData, const Attribute &attribute, 
     memcpy(&rootHeader, pageData, sizeof(IndexHeader));
     // Get the number of entries
     int numEntries = rootHeader.indexEntriesNumber;
-	// Read through the non-leaf entry until found suitable page pointer
+    // Read through the non-leaf entry until found suitable page pointer
     int offset = sizeof(IndexHeader) + INT_SIZE;
     uint32_t p0;
-    memcpy(&p0, ((char*) pageData + sizeof(IndexHeader)),  INT_SIZE);
+    memcpy(&p0, (char*) pageData + sizeof(IndexHeader),  INT_SIZE);
 
-	NonLeafEntry *prevEntry;	
+    NonLeafEntry *prevEntry;	
     int prevSize = 0;
     for(int i = 0; i < numEntries; i++) 
     {
         // get the next entry
         NonLeafEntry *entry;
-        memcpy(entry, ((char*)pageData + offset), sizeof(NonLeafEntry));
-		offset += sizeof(NonLeafEntry);
+        memcpy(entry, (char*)pageData + offset, sizeof(NonLeafEntry));
+	offset += sizeof(NonLeafEntry);
         // read the value in the entry. Compare with key
         switch(attribute.type) 
         {
             case(TypeInt):
-			{
+	    {
 	            int nextInt;
 	            int keyInt;
 	            memcpy(&keyInt, key, INT_SIZE);
 	            memcpy(&nextInt, ((char*)pageData + offset), INT_SIZE);
-				offset += INT_SIZE;
+		    offset += INT_SIZE;
 	
-				// return p0 if key is less than first search key value            
+	            // return p0 if key is less than first search key value            
 	            if(i == 0 && keyInt < nextInt)
 	             	return p0;
-				// return previous key's child pointer if key is less than current search key value
+		    // return previous key's child pointer if key is less than current search key value
 	            if( keyInt < nextInt)
-				{
-					// get prevEntry's child
-					memcpy(prevEntry, ((char*)pageData + offset - (2*INT_SIZE) - (2*sizeof(NonLeafPage))), sizeof(NonLeafPage));
-					return prevEntry->child;	
+		    {
+		        // get prevEntry's child
+			memcpy(prevEntry, ((char*)pageData + offset - (2*INT_SIZE) - (2*sizeof(NonLeafEntry))), sizeof(NonLeafEntry));
+			return prevEntry->child;	
 	            }
-				// return last page pointer if key is greater than or equal to last search key value entry
+		    // return last page pointer if key is greater than or equal to last search key value entry
 	            if(i == numEntries - 1 && keyInt >= nextInt)
-					return entry->child;
+			return entry->child;
 
-            	break; 
-			}
+            	    break; 
+	    }
             case(TypeReal):
-	        { 
-			    float nextReal;
+	    { 
+		    float nextReal;
 	            float keyReal;
 	            memcpy(&keyReal, key, sizeof(int));
 	            memcpy(&nextReal, ((char*) pageData + offset), REAL_SIZE);
 	            offset += REAL_SIZE;
 				
-				// return p0 if key is less than first search key value
+		    // return p0 if key is less than first search key value
 	            if(i == 0 && keyReal < nextReal)
 	            	return p0;
-				// return previous key's child pointer if key is less than current search key value	   
+		    // return previous key's child pointer if key is less than current search key value	   
 	            if(keyReal < nextReal)
 	            {
-					// get prevEntry's child
-	                memcpy(prevEntry, ((char*)pageData + offset - (2*REAL_SIZE) - (2*sizeof(NonLeafPage))), sizeof(NonLeafPage));
+			// get prevEntry's child
+	                memcpy(prevEntry, (char*)pageData + offset - (2*REAL_SIZE) - (2*sizeof(NonLeafEntry)), sizeof(NonLeafEntry));
 	                return prevEntry->child;
 	            }
-				// return last page pointer if key is greater than or equal to last search key value entry
+		    // return last page pointer if key is greater than or equal to last search key value entry
 	            if(i == numEntries - 1 && keyReal >= nextReal)
 	              	return entry->child;
 					
-	        	break;
+	            break;
             }
-			case(TypeVarChar):
-	        { 
-				// get key value
-			    int length;
+	    case(TypeVarChar):
+	    { 
+		    // get key value
+		    int length;
 	            memcpy(&length, (char*)key, INT_SIZE);
 	            char* keyVarChar = (char*) malloc(length);
 	            memcpy(keyVarChar, (char*)key + INT_SIZE, length);
 	            // get current search key value
-				int nextLength = entry->size;
+		    int nextLength = entry->size;
 	            char* nextVarChar = (char*)malloc(nextLength);  
 	            memcpy(nextVarChar, (char*) pageData + offset, nextLength);
 	            offset += nextLength;
 
-				// return p0 if key is less than first search key value
+		    // return p0 if key is less than first search key value
 	            if(i == 0 && strcmp(keyVarChar, nextVarChar) < 0)
 	              	return p0;
-				// return previous key's child poiter if key is less than current search key value
-				// guaranteed to be not p0 (first page pointer)
+		    // return previous key's child poiter if key is less than current search key value
+		    // guaranteed to be not p0 (first page pointer)
 	            if(strcmp(keyVarChar ,nextVarChar) < 0)
-	           	{
-	                memcpy(prevEntry, (char*)pageData + offset - nextLength - (2*sizeof(NonLeafPage)) - prevSize, sizeof(NonLeafPage));
+	            {
+	                memcpy(prevEntry, (char*)pageData + offset - nextLength - (2*sizeof(NonLeafEntry)) - prevSize, sizeof(NonLeafEntry));
 	                return prevEntry->child;
 	            }
-				// return last page pointer if key is greater than or equal to last search key value entry   
+		    // return last page pointer if key is greater than or equal to last search key value entry   
 	            if(i == numEntries - 1 && strcmp(keyVarChar, nextVarChar) >= 0)
-	    			return entry->child;
+	    		return entry->child;
 					
-				// keep track of current length
+		    // keep track of current length
 	            prevSize = nextLength;    
 	            free(keyVarChar);
 	            free(nextVarChar);            
-	        	break;
-			}
-			default:
-			{
-				break;
-			}
+	            break;
+	    }
+	    default:
+	    {
+		   break;
+	    }
         }
     } 
     return ERROR_FINDING_LEAF_PAGE;
 }
 
+uint32_t IndexManager::findLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, void *pageData)
+{
+	// get header for root page
+	IndexHeader ixHeader = getIndexHeader(pageData);
+	// follow non-leaf pages until proper leaf page is found
+	uint32_t pagePtr = 0;
+	while(ixHeader.isLeafPage != true)
+	{
+		pagePtr = getNextChild(pageData, attribute, key);
+		if(pagePtr == ERROR_FINDING_LEAF_PAGE)
+			return 0;
+		ixfileHandle.readPage(pagePtr, pageData);
+		ixHeader = getIndexHeader(pageData);	 
+	}
+	return pagePtr;
+}
+
+RC IndexManager::insertIntoLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, uint32_t &leafPage, void *pageData)
+{
+    // get the key value
+    int size;
+    void *keyVal;
+    switch(attribute.type)
+    {
+	case TypeInt:
+	{
+	    size = INT_SIZE;
+	    memcpy( (uint32_t*) keyVal, key, INT_SIZE);
+	    break;
+	}
+	case TypeReal:
+	{
+	    size = REAL_SIZE;
+	    memcpy( (float*)keyVal, key, REAL_SIZE);
+	    break;
+	}
+	case TypeVarChar:
+	{
+	    memcpy( &size, key, VARCHAR_LENGTH_SIZE);
+	    memcpy( (char*)keyVal, (char*)key + VARCHAR_LENGTH_SIZE, size);
+	    break;
+	}
+	default:
+	    break;
+    }
+ 
+    // get index header
+    IndexHeader ixHeader = getIndexHeader(pageData);
+
+    int offset = sizeof(IndexHeader);
+    LeafEntry dataEntry;
+    dataEntry.rid = rid;
+    // base case: leaf page is empty
+    if( ixHeader.indexEntriesNumber == 0)
+    {
+	switch(attribute.type)
+	{
+	    case TypeInt:
+	    {
+		dataEntry.size = INT_SIZE;
+		memcpy( (char*)pageData + offset, &dataEntry, sizeof(LeafEntry));
+		offset += sizeof(LeafEntry);
+
+		memcpy( (char*)pageData + offset, (char*)keyVal, INT_SIZE);
+		offset += INT_SIZE;
+		break;
+	    }
+	    case TypeReal:
+	    {
+		dataEntry.size = REAL_SIZE;
+		memcpy( (char*)pageData + offset, &dataEntry, sizeof(LeafEntry));
+		offset += sizeof(LeafEntry);
+
+		memcpy( (char*)pageData + offset, (char*)keyVal, REAL_SIZE);
+		offset += REAL_SIZE;
+		break;
+	    }
+	    case TypeVarChar:
+	    {
+		int varlen;
+	   	memcpy(&varlen, (char*)key, VARCHAR_LENGTH_SIZE);
+		dataEntry.size = varlen;
+		if(ixHeader.freeSpaceOffset < sizeof(LeafEntry) + varlen)
+		{
+		    // a single entry should be less than PAGE_SIZE
+		    free(pageData);
+		    return BAD_INPUT;
+		}
+		memcpy( (char*)pageData + offset, &dataEntry, sizeof(LeafEntry));
+		offset += sizeof(LeafEntry);
+
+		memcpy( (char*)pageData + offset, (char*) keyVal + VARCHAR_LENGTH_SIZE, varlen);
+		offset += varlen;
+	  	break;
+	     }
+	     default:
+		break;
+	}
+	// update index header
+	ixHeader.freeSpaceOffset = offset;
+	ixHeader.indexEntriesNumber = 1;
+	setIndexHeader(pageData, ixHeader);
+	if( ixfileHandle.writePage(leafPage, pageData))
+	{
+		free(pageData);
+		return FH_WRITE_FAILED;
+	}
+	free(pageData);
+	return SUCCESS;
+    }
+
+    for(int i=0; i < ixHeader.indexEntriesNumber; i++)
+    {
+
+    	switch(attribute.type)
+    	{
+		case TypeInt:
+		{
+		    break;
+		}
+		case TypeReal:
+		{
+	
+		    break;
+		}
+		case TypeVarChar:
+		{
+	
+		    break;
+		}
+		default:
+		    break;
+   	 }
+    }
+    return 0;
+}
