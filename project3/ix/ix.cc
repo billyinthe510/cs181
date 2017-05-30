@@ -209,9 +209,14 @@ RC IndexManager::scan(IXFileHandle &ixfileHandle,
 
 
 
-void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const
+void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute)
 {
-
+	// get the root
+	void *pageData = malloc(PAGE_SIZE);
+	ixfileHandle.readPage(0, pageData);
+	Attribute myAttr = attribute;
+	printNonLeaf(ixfileHandle, 0, 0, myAttr);
+	
 }
 IX_ScanIterator::IX_ScanIterator()
 {
@@ -962,5 +967,298 @@ RC IndexManager::insertIntoLeafPage(IXFileHandle &ixfileHandle, const Attribute 
 	free(keyVal);
 	free(pageData);
     return -1;
+}
+bool IndexManager::getIsLeafPage(IXFileHandle &ixfileHandle, uint32_t pageNum)
+{
+	void *pageData = malloc(PAGE_SIZE);
+	ixfileHandle.readPage(pageNum, pageData);
+	IndexHeader head;
+	memcpy(&head, pageData, sizeof(IndexHeader));
+	free(pageData);
+	return head.isLeafPage;
+}
+void IndexManager::printNonLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, const Attribute &attribute) 
+{
+    void* pageData = malloc(PAGE_SIZE);
+    ixfileHandle.readPage(0, pageData);
+    //Read the root page header
+    IndexHeader pageHeader;
+    memcpy(&pageHeader, pageData, sizeof(IndexHeader));
+    //Get the number of entries
+    int numEntries = pageHeader.indexEntriesNumber;
+    //Read through the non-leaf entry until found suitable place
+    //offset = size of all of the previous void* data
+    uint32_t firstPage;
+    memcpy(&firstPage,(char*) pageData + sizeof(IndexHeader),  sizeof(int));
+    int offset = 0;
+    char spaces[numSpaces + 1];
+    
+    for(int i = 0; i < numSpaces; i++)
+        spaces[i] = ' ';
+    spaces[numSpaces] = '\0';
+    cout << spaces << "\"keys\":[";
+    
+    //Print out each key in this page
+    for(int i = 0; i < numEntries; i++)
+    {
+        NonLeafEntry entry;
+        memcpy(&entry, (char*)pageData + sizeof(IndexHeader) + (i * sizeof(NonLeafEntry)) + offset + sizeof(int), sizeof(NonLeafEntry));
+        if(entry.size >= 0)
+        {
+            switch(attribute.type) 
+            {
+                case(TypeInt):
+                int nextInt;
+                memcpy(&nextInt, (char*)pageData + sizeof(IndexHeader) + ((i + 1) * sizeof(NonLeafEntry)) + offset + sizeof(int), sizeof(int));  
+        
+                offset += sizeof(int);
+                if(i == 0)
+                    cout << "\"" << nextInt << "\"";
+                else 
+                    cout << "\", \"" << nextInt;
+                
+                break; 
+                case(TypeReal):
+                float nextReal;
+        
+                memcpy(&nextReal,(char*) pageData + + sizeof(IndexHeader) + ((i + 1) * sizeof(NonLeafEntry)) + offset + sizeof(int), sizeof(int));
+                offset += sizeof(float);
+                if(i == 0)
+                    cout << "\"" << nextReal << "\":";
+                else
+                    cout << "\", \"" << nextInt;
+                
+                break;
+                case(TypeVarChar):
+                int nextLength = entry.size;
+                char* nextVarChar = (char*)malloc(nextLength + 1);
+        
+                memcpy(nextVarChar, (char*) pageData + sizeof(IndexHeader) + ((i + 1) * sizeof(NonLeafEntry)) + offset + sizeof(int), sizeof(int));
+                nextVarChar[nextLength] = '\0';
+                offset += nextLength;
+                if (i == 0)
+                    cout << "\"" << nextVarChar << "\",";    
+                else
+                    cout << "\", \"" << nextVarChar;
+                break;
+            }
+        }
+    }
+    cout << "]," << endl;
+    cout << spaces << "{\"Children\": [" << endl;
+    offset = 0;
+    for(int i = 0; i < numEntries; i++) 
+    {
+        //get the next entry
+        NonLeafEntry entry;
+        memcpy(&entry, (char*)pageData + sizeof(IndexHeader) + (i * sizeof(NonLeafEntry)) + offset + sizeof(int), sizeof(NonLeafEntry));
+        //Read the value in the entry. Compare with key
+        switch(attribute.type) 
+        {
+            case(TypeInt):
+            int nextInt;
+            memcpy(&nextInt, (char*)pageData + sizeof(IndexHeader) + ((i + 1) * sizeof(NonLeafEntry)) + offset + sizeof(int), sizeof(int));  
+            offset += sizeof(int);
+            
+                if(i == 0)
+                {
+                    if(getIsLeafPage(ixfileHandle, firstPage) == false)
+                    {
+                        printNonLeaf(ixfileHandle, firstPage, numSpaces + 4, attribute); 
+                        printNonLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);
+                    }
+                    else
+                    {
+                        printLeaf(ixfileHandle, firstPage, numSpaces + 4, attribute);
+                        printLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);                    
+                    }
+                
+               }
+               else 
+               {
+                    if(getIsLeafPage(ixfileHandle, firstPage) == false)
+                    {
+                        printNonLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);
+                    }
+                    else
+                    { 
+                        printLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);                    
+                    }
+                }
+            
+        break; 
+        case(TypeReal):
+        float nextReal;
+        
+        memcpy(&nextReal,(char*) pageData + + sizeof(IndexHeader) + ((i + 1) * sizeof(NonLeafEntry)) + offset + sizeof(int), sizeof(int));
+        offset += sizeof(float);
+       
+            if(i == 0)
+            {
+                if(getIsLeafPage(ixfileHandle, firstPage) == false)
+                {
+                    printNonLeaf(ixfileHandle, firstPage, numSpaces + 4, attribute); 
+                    printNonLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);
+                }
+                else
+                {
+                    printLeaf(ixfileHandle, firstPage, numSpaces + 4, attribute);
+                    printLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);                    
+                }
+            
+           }
+           else 
+           {
+                if(getIsLeafPage(ixfileHandle, firstPage) == false)
+                {
+                    printNonLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);
+                }
+                else
+                { 
+                    printLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);                    
+                }
+            }
+        
+        break;
+        case(TypeVarChar):
+        
+        int nextLength = entry.size;
+        char* nextVarChar = (char*)malloc(nextLength);
+        
+        memcpy(nextVarChar, (char*) pageData + sizeof(IndexHeader) + ((i + 1) * sizeof(NonLeafEntry)) + offset, sizeof(int));
+        offset += nextLength;
+            if(i == 0)
+            {
+                if(getIsLeafPage(ixfileHandle, firstPage) == false)
+                {
+                    printNonLeaf(ixfileHandle, firstPage, numSpaces + 4, attribute); 
+                    printNonLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);
+                }
+                else
+                {
+                    printLeaf(ixfileHandle, firstPage, numSpaces + 4, attribute);
+                    printLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);                    
+                }
+            
+           }
+           else 
+           {
+                if(getIsLeafPage(ixfileHandle, firstPage) == false)
+                {
+                    printNonLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);
+                }
+                else
+                { 
+                    printLeaf(ixfileHandle, entry.child, numSpaces + 4, attribute);                    
+                }
+            }
+        break;
+        }
+    } 
+}
+void IndexManager::printLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, const Attribute &attribute) 
+{
+    //Read the root page header
+    //void* rootHeader = malloc(sizeof(IndexHeader));
+    void* pageData = malloc(PAGE_SIZE);
+    ixfileHandle.readPage(pageNum, pageData);
+    IndexHeader rootHeader;
+    rootHeader = getIndexHeader(pageData);
+   // memcpy(&rootHeader, pageData, sizeof(IndexHeader));
+    //Get the number of entries
+    int numEntries = rootHeader.indexEntriesNumber;
+    //Read through the non-leaf entry until found suitable place
+    //offset = size of all of the previous void* data
+    int offset = 0;
+    int prevInt = -1;
+    int prevReal = -1;
+    char* prevVarChar;
+    char spaces[numSpaces + 1];
+    for(int i = 0; i < numSpaces; i++)
+        spaces[i] = ' ';
+    spaces[numSpaces] = '\0';
+    
+    if(numEntries > 0)
+    {
+        cout << spaces << "{\"keys\": [\"";
+        for(int i = 0; i < numEntries; i++) 
+        {
+            //Read the value in the entry. Compare with key
+            LeafEntry leafEntry;
+            memcpy(&leafEntry, (char*)pageData + sizeof(IndexHeader) + ((i) * sizeof(LeafEntry)) + offset, sizeof(LeafEntry));  
+            switch(attribute.type) 
+            {
+                
+                case(TypeInt):
+                int nextInt;
+                //get the data
+                memcpy(&nextInt, (char*)pageData + sizeof(IndexHeader) + ((i + 1) * sizeof(LeafEntry)) + offset, sizeof(int));  
+                if(leafEntry.size >= 0)
+                {
+                    if(prevInt == -1)
+                    {
+                        cout << nextInt << ":[(" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";
+                    }
+                    else if(prevInt == nextInt)
+                    {
+                        cout << ",(" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";   
+                    } 
+                    else if(prevInt != nextInt)
+                    {
+                        cout << "]\",\"" << nextInt << ":[" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";
+                    }
+                }
+                prevInt = nextInt;
+                offset += sizeof(int);
+                break; 
+                case(TypeReal):
+                float nextReal;
+                memcpy(&nextReal,(char*) pageData + + sizeof(IndexHeader) + ((i + 1) * sizeof(LeafEntry)) + offset, sizeof(int));
+            
+                if(leafEntry.size >= 0)
+                {
+                    if(prevReal == -1)
+                    {
+                        cout << nextReal << ":[(" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";
+                    }
+                    if(prevReal == nextReal)
+                    {
+                        cout << ",(" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";   
+                    } 
+                    else if(prevReal != nextReal)
+                    {
+                        cout << "]\",\"" << nextReal << ":[" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";
+                    }
+                }
+                offset += sizeof(float);
+                break;
+                case(TypeVarChar):
+                int nextLength = leafEntry.size;
+                char* nextVarChar = (char*)malloc(nextLength);
+            
+                memcpy(nextVarChar, (char*) pageData + sizeof(IndexHeader) + ((i + 1) * sizeof(LeafEntry)) + offset , nextLength);
+            
+                if(leafEntry.size >= 0)
+                {
+                    if(prevVarChar == NULL)
+                    {
+                        cout << nextVarChar << ":[(" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";
+                    }
+                    if(strcmp(prevVarChar, nextVarChar) == 0)
+                    {
+                        cout << ",(" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";   
+                    } 
+                    else if(strcmp(prevVarChar, nextVarChar) != 0)
+                    {
+                        cout << "]\",\"" << nextVarChar << ":[" << leafEntry.rid.pageNum << "," << leafEntry.rid.slotNum << ")";
+                    }
+                }
+                offset += nextLength;        
+                break;
+            }
+        } 
+        cout << "]\"]}," << endl;
+    }
+    free(pageData);
 }
 

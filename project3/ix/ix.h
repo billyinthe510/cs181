@@ -77,15 +77,18 @@ class IndexManager {
                 IX_ScanIterator &ix_ScanIterator);
 
         // Print the B+ tree in pre-order (in a JSON record format)
-        void printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const;
+        void printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute);
 	// Helper functions
 	bool isIndexFile(const string &fileName);
-	RC insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, void *pageData);
 	uint32_t getNextChild(void* pageData, const Attribute &attribute, const void* key);
 	uint32_t findLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, void *pageData);
+		// helpers for insert will free pageData for us
 	RC insertIntoLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, uint32_t &leafPage, void *pageData);
+	RC insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, void *pageData);
 
-
+	bool getIsLeafPage(IXFileHandle &ixfileHandle, uint32_t pageNum);
+	void printNonLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, const Attribute &attribute);
+	void printLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, const Attribute &attribute);
     protected:
         IndexManager();
         ~IndexManager();

@@ -27,7 +27,7 @@ int testCase_6(const string &indexFileName, const Attribute &attribute)
     unsigned key;
     int inRidSlotNumSum = 0;
     int outRidSlotNumSum = 0;
-    unsigned numOfTuples = 1000;
+    unsigned numOfTuples = 200;
 
     // create index file
     RC rc = indexManager->createFile(indexFileName);
@@ -49,7 +49,6 @@ int testCase_6(const string &indexFileName, const Attribute &attribute)
 
         inRidSlotNumSum += rid.slotNum;
     }
-
     // Scan
     rc = indexManager->scan(ixfileHandle, attribute, NULL, NULL, true, true, ix_ScanIterator);
     assert(rc == success && "indexManager::scan() should not fail.");
