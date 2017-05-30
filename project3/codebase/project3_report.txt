@@ -1,0 +1,109 @@
+1. Basic information
+Team number (e.g., 01) : 26
+#1 Student ID : 1481216
+#1 Student Name : FRANCIS CRUZ
+#2 Student ID : 1499240
+#2 Student Name : BILLY LAI
+#3 Student ID : 1565037
+#3 Student Name : CHARISSA MAMUYAC
+
+2. Meta-data page in an index file
+- Show your meta-data page of an index design if you have any. 
+N/A
+
+
+3. Index Entry Format
+- Show your index entry design (structure). 
+
+TypeInt/TypeReal:
+|| P0 ||  key1 || P1 ||  key2 || P2 || …
+
+TypeVarChar: 
+|| P0 || length of VarChar| key1 || P1 ||  length of VarChar | key2 || P2 || …
+
+
+4. Page Format
+- Every page will have an IndexHeader that contains a bool that determines if a page isLeafPage or not, a freeSpace offset, the number of entries in the node(page), the parent of the node, and the left and right siblings of the node.
+- Our root page is page 0
+- Page per node
+
+- Show your internal-page (non-leaf node) design.
+Contains an IndexHeader (as described above).  
+
+| isLeafPage | freeSpace | #Entries | Parent | Left | Right | P0 (page pointer to page for key < k1) | Index Entry | … | Index Entry |
+
+
+- Show your leaf-page (leaf node) design.
+Contains an IndexHeader (as described above). 
+
+| isLeafPage | freeSpace | #Entries | Parent | Left | Right | Data Entry | … | Data Entry|
+
+5. Implementation Detail
+- Have you implemented non-lazy deletion? Choose Yes or No: Also provide implementation details if yes.
+No. Size is set to 0 to indicate entry has been deleted.
+
+- Other implementation details:
+Struct NonLeafEntry: int size
+		     uint32_t child
+- VarChar stores 4 bytes of data for compression; 
+
+Struct LeafEntry: int size
+		  RID rid
+- size = 0 to indicate DELETED entry
+
+
+HELPER FUNCTIONS:
+
+void newIndexBasedPage(void* data)
+- initializes:
+	 parent = left = right = -1
+	 isLeafPage = false
+	 freeSpace offset = sizeof(IndexHeader) + INT_SIZE
+		- When initializing, leaf pages must set the freeSpace offset to -= INT.SIZE to overwrite P0 pointer.
+
+bool isIndexFile(const string &fileName) 
+- Checks if file is a .ix file.
+- We appended a “.ix” to fileNames that are index files
+ 
+bool fileExists(const string &fileName)
+- Checks if file exists
+
+void setIndexHeader(void *data, IndexHeader ixHeader)
+- Sets/memcopy IndexHeader to page/data
+
+
+RC insertIntoLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, uint32_t &leafPage, void *pageData)
+- Helper function for insertEntry()
+- base case: leaf page is empty
+	     single VarChar entry should be less than a page
+- ideal case: insert entry into leaf without splitting
+- split: allot enough space for two pages incase split is needed
+
+RC insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, void *pageData)
+- Helper function for insertEntry() for when a tree is empty.
+
+
+uint32_t getNextChild(void* pageData, const Attribute &attribute, const void* key) 
+-
+ 
+uint32_t findLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, void *pageData) 
+- Gets the header for root page, then follows non-leaf pages until proper leaf page is found
+
+
+bool getIsLeafPage(IXFileHandle &ixfileHandle, uint32_t pageNum) 
+- Extracts isLeafPage info from Index Header
+
+void printNonLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, const Attribute &attribute) 
+-  Helper function for printBtree()
+-  Prints non-leaf pages in JSON format
+
+void printLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, const Attribute &attribute)
+-  Helper function for printBtree()
+-  Prints leaf pages in JSON format
+
+
+
+
+6. Other (optional)
+- Freely use this section to tell us about things that are related to the project 3, but not related to the other sections (optional)
+
