@@ -9,48 +9,69 @@ Team number (e.g., 01) : 26
 
 2. Meta-data page in an index file
 - Show your meta-data page of an index design if you have any. 
-N/A
+
+We do not have a meta-data page. We always use page 0 as root. All information about nodes are stored in IndexHeader
 
 
 3. Index Entry Format
 - Show your index entry design (structure). 
 
-TypeInt/TypeReal:
-|| P0 ||  key1 || P1 ||  key2 || P2 || …
+Each page includes an index header
+IndexHeader
+{
+	uint16_t freeSpaceOffset
+	uint16_t indexEntriesNumber
+	bool isLeafPage
+	int parent
+	int left
+	int right
+}
 
-TypeVarChar: 
-|| P0 || length of VarChar| key1 || P1 ||  length of VarChar | key2 || P2 || …
+NonLeaf Pages
+|| IndexHeader ||  p0 || NonLeafEntry | key1 ||  NonLeafEntry || key2 ||...
+
+NonLeafEntry
+{
+	int size
+	uint32_t child (pointer to nodes  >=current entry but <nextEntry)
+}
+
+LEAF PAGES
+|| IndexHeader || LeafEntry | key0 || LeafEntry | key1 || ...
+
+LeafEntry
+{
+	int size
+	RID rid
+}
+
 
 
 4. Page Format
 - Every page will have an IndexHeader that contains a bool that determines if a page isLeafPage or not, a freeSpace offset, the number of entries in the node(page), the parent of the node, and the left and right siblings of the node.
 - Our root page is page 0
-- Page per node
+- Each node occupies one page
 
 - Show your internal-page (non-leaf node) design.
 Contains an IndexHeader (as described above).  
 
-| isLeafPage | freeSpace | #Entries | Parent | Left | Right | P0 (page pointer to page for key < k1) | Index Entry | … | Index Entry |
+| isLeafPage | freeSpace | #Entries | Parent | Left | Right | P0 (page pointer to page for key < k1) | NonLeafEntry | P1 | NonLeaf Entry | ...
 
 
 - Show your leaf-page (leaf node) design.
 Contains an IndexHeader (as described above). 
 
-| isLeafPage | freeSpace | #Entries | Parent | Left | Right | Data Entry | … | Data Entry|
+| isLeafPage | freeSpace | #Entries | Parent | Left | Right | LeafEntry | data | LeafEntry| data | ...
 
 5. Implementation Detail
 - Have you implemented non-lazy deletion? Choose Yes or No: Also provide implementation details if yes.
-No. Size is set to 0 to indicate entry has been deleted.
+No. LeafEntry's size field is set to 0 to indicate entry has been logically deleted.
 
 - Other implementation details:
-Struct NonLeafEntry: int size
-		     uint32_t child
 - VarChar stores 4 bytes of data for compression; 
-
-Struct LeafEntry: int size
-		  RID rid
 - size = 0 to indicate DELETED entry
-
+- unused AttrType along with getAttribute(), setAttribute() methods in ixFileHandle for validating insertEntry calls
+- creating file appends page 0 with P0 pointer to page 1 which is initialized to an empty leaf page
 
 HELPER FUNCTIONS:
 
@@ -71,20 +92,20 @@ bool fileExists(const string &fileName)
 void setIndexHeader(void *data, IndexHeader ixHeader)
 - Sets/memcopy IndexHeader to page/data
 
+RC insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, void *pageData)
+- Helper function for insertEntry() for when a tree is empty.
 
 RC insertIntoLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, uint32_t &leafPage, void *pageData)
 - Helper function for insertEntry()
 - base case: leaf page is empty
 	     single VarChar entry should be less than a page
 - ideal case: insert entry into leaf without splitting
-- split: allot enough space for two pages incase split is needed
+- split: unfinished implementation
 
-RC insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, void *pageData)
-- Helper function for insertEntry() for when a tree is empty.
 
 
 uint32_t getNextChild(void* pageData, const Attribute &attribute, const void* key) 
--
+- returns appropriate pointer to next page down the tree
  
 uint32_t findLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, void *pageData) 
 - Gets the header for root page, then follows non-leaf pages until proper leaf page is found
@@ -107,3 +128,6 @@ void printLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, cons
 6. Other (optional)
 - Freely use this section to tell us about things that are related to the project 3, but not related to the other sections (optional)
 
+split function was not completed. Since split is not fully functional, insertEntry will only insert until inserting to a leaf page exceeds PAGE_SIZE. If given more time, split could be completed and insertEntry should be fully functional.
+
+- printBtree is tested and works!
