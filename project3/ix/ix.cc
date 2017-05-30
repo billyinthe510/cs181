@@ -768,14 +768,14 @@ RC IndexManager::insertIntoLeafPage(IXFileHandle &ixfileHandle, const Attribute 
     }
 		
     // ideal case: insert entry into leaf without splitting
-    if( (unsigned)(sizeof(LeafEntry)+size) <= (unsigned)(PAGE_SIZE-ixHeader.freeSpaceOffset) )
+    if( (unsigned)(sizeof(LeafEntry)+size+ixHeader.freeSpaceOffset) <= (unsigned)(PAGE_SIZE) )
     {
 	int numEntries = ixHeader.indexEntriesNumber;
 	bool inserted = false;
 	for(int i = 0; i < numEntries; i++) 
 	{
 	        // get the next entry
-	        NonLeafEntry entry;
+	        LeafEntry entry;
 	        memcpy(&entry, (char*)pageData + offset, sizeof(LeafEntry));
 	        offset += sizeof(LeafEntry);
 	        // read the value in the entry. Compare with key and insert data entry
@@ -952,21 +952,15 @@ RC IndexManager::insertIntoLeafPage(IXFileHandle &ixfileHandle, const Attribute 
 	free(keyVal);
 	return BAD_INPUT;
     }
-	
-	// else split
-	/*	  */
-	// enough space for two pages incase split is needed
-	void *copy = malloc(2*PAGE_SIZE);
-	if( copy == NULL)
-	{
-		free(keyVal);
-		free(pageData);
-		return IX_MALLOC_FAILED;
-	}
-	free(copy);
+
+    // else split
+    if( split(ixfileHandle, attribute, rid, leafPage, pageData, size, keyVal))
+    {
 	free(keyVal);
-	free(pageData);
-    return -1;
+	return BAD_INPUT;
+    }
+    free(keyVal);
+    return SUCCESS;
 }
 bool IndexManager::getIsLeafPage(IXFileHandle &ixfileHandle, uint32_t pageNum)
 {
@@ -1260,5 +1254,682 @@ void IndexManager::printLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int n
         cout << "]\"]}," << endl;
     }
     free(pageData);
+}
+
+RC IndexManager::split(IXFileHandle &ixfileHandle, const Attribute &attribute, const RID &rid, uint32_t leafPage, void *pageData, int size, void *keyVal)
+{/*
+	// malloc space to copy entries in order
+	void *copy = malloc(2*PAGE_SIZE);
+	if( copy == NULL)
+	{
+		free(pageData);
+		return IX_MALLOC_FAILED;
+	}
+
+	// get page header
+	IndexHeader ixHeader = getIndexHeader(pageData);
+	int numEntries = ixHeader.indexEntriesNumber;
+
+	if(ixHeader.isLeafPage)
+	{
+		int offset = sizeof(IndexHeader);
+		LeafEntry dataEntry;
+		dataEntry.rid = rid;
+		// copy entries to get the correct order
+		bool inserted = false;
+		for(int i = 0; i < numEntries; i++) 
+		{
+		        // get the next entry
+		      	LeafEntry entry;
+		        memcpy(&entry, (char*)pageData + offset, sizeof(LeafEntry));
+		        offset += sizeof(LeafEntry);
+		        // read the value in the entry. Compare with key and insert data entry
+		        switch(attribute.type) 
+		        {
+		            case(TypeInt):
+			    	{
+						dataEntry.size = INT_SIZE;
+						
+			        	int nextInt;
+			        	int keyInt;
+			        	memcpy(&keyInt, key, INT_SIZE);
+			        	memcpy(&nextInt, ((char*)pageData + offset), INT_SIZE);
+						offset += INT_SIZE;
+						         
+			        	if(i == 0 && keyInt < nextInt)
+			        	{
+							// copy entry then rest of entries if key is less than first search key value
+							memcpy( copy, &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)copy + sizeof(LeafEntry), keyVal, INT_SIZE);
+							memcpy( (char*)copy + sizeof(LeafEntry) + INT_SIZE, (char*)pageData + sizeof(IndexHeader), ixHeader.freeSpaceOffset-sizeof(IndexHeader));
+							inserted = true;
+						}
+			        	else if( keyInt < nextInt)
+						{
+							// copy all entries up to current entry if key is less than current search key value
+							// copy entry to be inserted
+							// copy all remaining entries
+							memcpy( copy, (char*)pageData + sizeof(IndexHeader), offset-sizeof(IndexHeader) - sizeof(LeafEntry) - INT_SIZE;
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - sizeof(LeafEntry) - INT_SIZE, &dataEntry, sizeof(LeafEntry);
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - INT_SIZE, keyVal, INT_SIZE);
+							memcpy( (char*)copy + offset - sizeof(IndexHeader), (char*)pageData + offset - sizeof(LeafEntry) - INT_SIZE, ixHeader.freeSpaceOffset-offset+sizeof(LeafEntry)+INT_SIZE);
+							inserted = true;
+			        	}
+			        	else if(i == numEntries - 1 && keyInt >= nextInt)
+						{
+							// copy all entries
+							// then copy entry to be inserted
+							// if key is greater than or equal to last search key value entry
+							memcpy( copy, (char*)pageData + sizeof(IndexHeader), ixHeader.freeSpaceOffset-sizeof(IndexHeader));
+							memcpy( (char*)copy + ixHeader.freeSpaceOffset-sizeof(IndexHeader), &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)copy + ixHeader.freeSpaceOffset-sizeof(IndexHeader)+sizeof(LeafEntry), keyVal, INT_SIZE);
+							inserted = true;
+						}
+						
+						if(inserted)
+						{
+							// copy half of the entries to leafPage
+							int half = floor((double)(numEntries+1)/2);
+							memcpy( (char*)pageData + sizeof(IndexHeader), (char*)copy, half*(sizeof(LeafEntry) + INT_SIZE));
+							int oldRightSibling = ixHeader.right;
+							ixHeader.right = ixfileHandle.getNumberOfPages();
+							ixHeader.indexEntriesNumber = half;
+							ixHeader.freeSpaceOffset = sizeof(IndexHeader) + (half*(sizeof(LeafEntry)+INT_SIZE));
+							setIndexHeader(pageData, ixHeader);
+							if(ixfileHandle.writePage(leafPage, pageData)
+							{
+								free(pageData);
+								free(copy);
+								return FH_WRITE_FAILED;
+							}
+							// append numEntries+1- half to new page
+							int remaining = numEntries+1-half;
+							memcpy( (char*)pageData+sizeof(IndexHeader), (char*)copy+ (half*(sizeof(LeafEntry)+INT_SIZE)),remaining*(sizeof(LeafEntry)+INT_SIZE));
+								// get middle entry to copy up
+								void *middle = malloc(INT_SIZE);
+								memcpy( &middle, (char*)copy + (half*(sizeof(LeafEntry)+INT_SIZE)) + sizeof(LeafEntry), INT_SIZE);
+								 
+							ixHeader.left = leafPage;
+							ixHeader.right = oldRightSibling;
+							ixHeader.indexEntriesNumber = remaining;
+							ixHeader.freeSpaceOffset = sizeof(IndexHeader) + (remaining*(sizeof(LeafEntry)+INT_SIZE));
+							setIndexHeader(pageData, ixHeader);
+							if(ixfileHandle.appendPage(pageData))
+							{
+								free(pageData);
+								free(copy);
+								free(middle);
+								return IX_APPEND_FAILED;
+							}
+							free(copy);
+							// update oldRightSibling's left ptr
+							if( oldRightSibling == -1)
+								continue;
+							else
+							{
+								if(ixfileHandle.readPage(oldRightSibling,pageData))
+								{
+									free(pageData);
+									free(middle);
+									return FH_READ_FAILED;
+								}
+								ixHeader = getIndexHeader(pageData);
+								ixHeader.left = ixfileHeader.getNumberOfPages()-1;
+								setIndexHeader(pageData);
+								if(ixfileHandle.writePage(oldRightSibling,pageData))
+								{
+									free(pageData);
+									free(middle);
+									return FH_WRITE_FAILED;
+								}
+							}
+							// copy up middle entry to non-leaf node
+							if(ixfileHandle.readPage(ixHeader.parent, pageData))
+							{
+								free(pageData);
+								free(middle);
+								return FH_READ_FAILED;	  
+							}
+							if(split(ixfileHandle, attribute, rid, ixfileHandle.getNumberOfPages()-1, pageData, size, middle))
+							{
+								free(pageData);
+								free(middle);
+								return BAD_INPUT;
+							}
+							free(pageData);
+							free(middle);
+							return SUCCESS;
+						}
+		            	break; 
+			    	}
+		            case(TypeReal):
+			    	{
+						dataEntry.size = REAL_SIZE;
+						
+			        	float nextReal;
+			        	float keyReal;
+			        	memcpy(&keyReal, key, REAL_SIZE);
+			        	memcpy(&nextReal, ((char*)pageData + offset), REAL_SIZE);
+						offset += REAL_SIZE;
+						         
+			        	if(i == 0 && keyReal < nextReal)
+			        	{
+							// copy entry then rest of entries if key is less than first search key value
+							memcpy( copy, &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)copy + sizeof(LeafEntry), keyVal, REAL_SIZE);
+							memcpy( (char*)copy + sizeof(LeafEntry) + REAL_SIZE, (char*)pageData + sizeof(IndexHeader), ixHeader.freeSpaceOffset-sizeof(IndexHeader));
+							inserted = true;
+						}
+			        	else if( keyReal < nextReal)
+						{
+							// copy all entries up to current entry if key is less than current search key value
+							// copy entry to be inserted
+							// copy all remaining entries
+							memcpy( copy, (char*)pageData + sizeof(IndexHeader), offset-sizeof(IndexHeader) - sizeof(LeafEntry) - REAL_SIZE;
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - sizeof(LeafEntry) - REAL_SIZE, &dataEntry, sizeof(LeafEntry);
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - REAL_SIZE, keyVal, REAL_SIZE);
+							memcpy( (char*)copy + offset - sizeof(IndexHeader), (char*)pageData + offset - sizeof(LeafEntry) - REAL_SIZE, ixHeader.freeSpaceOffset-offset+sizeof(LeafEntry)+INT_SIZE);
+							inserted = true;
+			        	}
+			        	else if(i == numEntries - 1 && keyReal >= nextReal)
+						{
+							// copy all entries
+							// then copy entry to be inserted
+							// if key is greater than or equal to last search key value entry
+							memcpy( copy, (char*)pageData + sizeof(IndexHeader), ixHeader.freeSpaceOffset-sizeof(IndexHeader));
+							memcpy( (char*)copy + ixHeader.freeSpaceOffset-sizeof(IndexHeader), &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)copy + ixHeader.freeSpaceOffset-sizeof(IndexHeader)+sizeof(LeafEntry), keyVal, REAL_SIZE);
+							inserted = true;
+						}
+						
+						if(inserted)
+						{
+							// copy half of the entries to leafPage
+							int half = floor((double)(numEntries+1)/2);
+							memcpy( (char*)pageData + sizeof(IndexHeader), (char*)copy, half*(sizeof(LeafEntry) + REAL_SIZE));
+							int oldRightSibling = ixHeader.right;
+							ixHeader.right = ixfileHandle.getNumberOfPages();
+							ixHeader.indexEntriesNumber = half;
+							ixHeader.freeSpaceOffset = sizeof(IndexHeader) + (half*(sizeof(LeafEntry)+REAL_SIZE));
+							setIndexHeader(pageData, ixHeader);
+							if(ixfileHandle.writePage(leafPage, pageData)
+							{
+								free(pageData);
+								free(copy);
+								return FH_WRITE_FAILED;
+							}
+							// append numEntries+1- half to new page
+							int remaining = numEntries+1-half;
+							memcpy( (char*)pageData+sizeof(IndexHeader), (char*)copy+ (half*(sizeof(LeafEntry)+REAL_SIZE)),remaining*(sizeof(LeafEntry)+REAL_SIZE));
+								// get middle entry to copy up
+								void *middle = malloc(REAL_SIZE);
+								memcpy( &middle, (char*)copy + (half*(sizeof(LeafEntry)+REAL_SIZE)) + sizeof(LeafEntry), REAL_SIZE);
+								 
+							ixHeader.left = leafPage;
+							ixHeader.right = oldRightSibling;
+							ixHeader.indexEntriesNumber = remaining;
+							ixHeader.freeSpaceOffset = sizeof(IndexHeader) + (remaining*(sizeof(LeafEntry)+REAL_SIZE));
+							setIndexHeader(pageData, ixHeader);
+							if(ixfileHandle.appendPage(pageData))
+							{
+								free(pageData);
+								free(copy);
+								free(middle);
+								return IX_APPEND_FAILED;
+							}
+							free(copy);
+							// update oldRightSibling's left ptr
+							if( oldRightSibling == -1)
+								continue;
+							else
+							{
+								if(ixfileHandle.readPage(oldRightSibling,pageData))
+								{
+									free(pageData);
+									free(middle);
+									return FH_READ_FAILED;
+								}
+								ixHeader = getIndexHeader(pageData);
+								ixHeader.left = ixfileHeader.getNumberOfPages()-1;
+								setIndexHeader(pageData);
+								if(ixfileHandle.writePage(oldRightSibling,pageData))
+								{
+									free(pageData);
+									free(middle);
+									return FH_WRITE_FAILED;
+								}
+							}
+							// copy up middle entry to non-leaf node
+							if(ixfileHandle.readPage(ixHeader.parent, pageData))
+							{
+								free(pageData);
+								free(middle);
+								return FH_READ_FAILED;	  
+							}
+							if(split(ixfileHandle, attribute, rid, ixfileHandle.getNumberOfPages()-1, pageData, size, middle))
+							{
+								free(pageData);
+								free(middle);
+								return BAD_INPUT;
+							}
+							free(pageData);
+							free(middle);
+							return SUCCESS;
+						}
+		            	break; 
+		            }
+			    	case(TypeVarChar):
+			    	{ 
+						 // get key value
+						 int length;
+						 memcpy(&length, (char*)key, INT_SIZE);
+						 char* keyVarChar = (char*) malloc(length);
+						 memcpy(keyVarChar, (char*)key + INT_SIZE, length);
+								
+						 dataEntry.size = length;
+								
+						 // get current search key value
+						int nextLength = entry.size;
+						char* nextVarChar = (char*)malloc(nextLength);  
+						memcpy(nextVarChar, (char*) pageData + offset, nextLength);
+						offset += nextLength;
+					
+					    if(i == 0 && strcmp(keyVarChar, nextVarChar) < 0)
+					    {
+							// memmov all entries if key is less than first search key value   
+							memmove( (char*)pageData + sizeof(IndexHeader) + sizeof(LeafEntry) + length, (char*)pageData + sizeof(IndexHeader), ixHeader.freeSpaceOffset-sizeof(IndexHeader));
+							memcpy( (char*)pageData + sizeof(IndexHeader), &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)pageData + sizeof(IndexHeader) + sizeof(LeafEntry), keyVarChar, length);
+							inserted = true;
+						}
+				        else if( strcmp(keyVarChar, nextVarChar) < 0)
+						{
+							// memmove all entries at current entry if key is less than current search key value
+				        	memmove( (char*)pageData + offset - entry.size + length, (char*)pageData + offset - entry.size - sizeof(LeafEntry), ixHeader.freeSpaceOffset - offset + sizeof(LeafEntry) + entry.size);
+							memcpy( (char*)pageData + offset - entry.size - sizeof(LeafEntry), &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)pageData + offset - entry.size, keyVarChar, length);
+							inserted = true;
+			        	}
+			        	else if(i == numEntries - 1 && strcmp(keyVarChar, nextVarChar) >= 0)
+						{
+							// insert to end if key is greater than or equal to last search key value entry
+							memcpy( (char*)pageData + offset, &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)pageData + offset + sizeof(LeafEntry), keyVarChar, length);
+							inserted = true;
+						}
+						// prevent memory leaks
+						free(keyVarChar);
+						free(nextVarChar);
+						
+						if(inserted)
+						{
+							ixHeader.freeSpaceOffset += sizeof(LeafEntry) + length;
+							ixHeader.indexEntriesNumber += 1;
+							setIndexHeader(pageData, ixHeader);
+							if(ixfileHandle.writePage(leafPage, pageData))
+							{		
+								free(pageData);
+								free(pageData);
+								return IX_MALLOC_FAILED;
+							}
+							free(pageData);
+							free(keyVal);
+							return SUCCESS;
+						}           
+						break;
+					}
+					default:
+						break;
+				}
+			}
+	}
+	// split on non-leaf page
+	// don't free pageData
+	// free copy
+	else
+	{
+		int offset = sizeof(IndexHeader)+INT_SIZE;
+		NonLeafEntry dataEntry;
+		dataEntry.child = leafPage;
+		
+		// copy entries to get the correct order
+		bool inserted = false;
+		for(int i = 0; i < numEntries; i++) 
+		{
+		        // get the next entry
+		      	NonLeafEntry entry;
+		        memcpy(&entry, (char*)pageData + offset, sizeof(NonLeafEntry));
+		        offset += sizeof(NonLeafEntry);
+		        // read the value in the entry. Compare with key and insert data entry
+		        switch(attribute.type) 
+		        {
+		            case(TypeInt):
+			    	{
+						dataEntry.size = INT_SIZE;
+						
+			        	int nextInt;
+			        	int keyInt;
+			        	memcpy(&keyInt, key, INT_SIZE);
+			        	memcpy(&nextInt, ((char*)pageData + offset), INT_SIZE);
+						offset += INT_SIZE;
+						         
+			        	if(i == 0 && keyInt < nextInt)
+			        	{
+							// copy entry then rest of entries if key is less than first search key value
+							memcpy( copy, &dataEntry, sizeof(NonLeafEntry));
+							memcpy( (char*)copy + sizeof(NonLeafEntry), keyVal, INT_SIZE);
+							memcpy( (char*)copy + sizeof(NonLeafEntry) + INT_SIZE, (char*)pageData + sizeof(IndexHeader)+INT_SIZE, ixHeader.freeSpaceOffset-sizeof(IndexHeader)-INT_SIZE);
+							inserted = true;
+						}
+			        	else if( keyInt < nextInt)
+						{
+							// copy all entries up to current entry if key is less than current search key value
+							// copy entry to be inserted
+							// copy all remaining entries
+							memcpy( copy, (char*)pageData + sizeof(IndexHeader)+INT_SIZE, offset-sizeof(IndexHeader) -INT_SIZE - sizeof(NonLeafEntry) - INT_SIZE;
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - INT_SIZE - sizeof(NonLeafEntry) - INT_SIZE, &dataEntry, sizeof(NonLeafEntry);
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - INT_SIZE - INT_SIZE, keyVal, INT_SIZE);
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - INT_SIZE, (char*)pageData + offset - sizeof(NonLeafEntry) - INT_SIZE, ixHeader.freeSpaceOffset-offset+sizeof(NonLeafEntry)+INT_SIZE);
+							inserted = true;
+			        	}
+			        	else if(i == numEntries - 1 && keyInt >= nextInt)
+						{
+							// copy all entries
+							// then copy entry to be inserted
+							// if key is greater than or equal to last search key value entry
+							memcpy( copy, (char*)pageData + sizeof(IndexHeader)+INT_SIZE, ixHeader.freeSpaceOffset-sizeof(IndexHeader)-INT_SIZE);
+							memcpy( (char*)copy + ixHeader.freeSpaceOffset-sizeof(IndexHeader)-INT_SIZE, &dataEntry, sizeof(NonLeafEntry));
+							memcpy( (char*)copy + ixHeader.freeSpaceOffset-sizeof(IndexHeader)-INT_SIZE+sizeof(NonLeafEntry), keyVal, INT_SIZE);
+							inserted = true;
+						}
+						
+						if(inserted)
+						{
+							// no need to split non-leaf node
+							if( sizeof(NonLeafEntry) + INT_SIZE + ixHeader.freeSpaceOffset <= PAGE_SIZE)
+							{
+								memcpy( (char*)pageData + sizeof(IndexHeader) + INT_SIZE, copy, (numEntries+1)*(sizeof(NonLeafEntry)+INT_SIZE));
+								ixHeader.indexEntriesNumber += 1;
+								ixHeader.freeSpaceOffset += sizeof(NonLeafEntry)+INT_SIZE;
+								setIndexHeader(pageData, ixHeader);
+								void *p = malloc(PAGE_SIZE);
+								if(ixfileHandle.readPage(leafPage,p))
+								{
+									free(p);
+									free(pageData);
+									free(copy);
+									return FH_READ_FAILED;
+								}
+								IndexHeader childHeader = getIndexHeader(p);
+								free(p);
+								if(ixfileHandle.writePage(childHeader.parent, pageData))
+								{
+									free(pageData);
+									free(copy);
+									return FH_WRITE_FAILED;
+								}
+								free(pageData);
+								free(copy);
+								return SUCCESS;
+							}
+							else
+							{
+								// copy half of the entries to leafPage
+								int half = floor((double)(numEntries+1)/2);
+								memcpy( (char*)pageData + sizeof(IndexHeader)+INT_SIZE, (char*)copy, half*(sizeof(NonLeafEntry) + INT_SIZE));
+								int oldRightSibling = ixHeader.right;
+								ixHeader.right = ixfileHandle.getNumberOfPages();
+								ixHeader.indexEntriesNumber = half;
+								ixHeader.freeSpaceOffset = sizeof(IndexHeader) + (half*(sizeof(LeafEntry)+INT_SIZE));
+								setIndexHeader(pageData, ixHeader);
+								if(ixfileHandle.writePage(leafPage, pageData)
+								{
+									free(pageData);
+									free(copy);
+									return FH_WRITE_FAILED;
+								}
+								// append numEntries+1- half to new page
+								int remaining = numEntries+1-half;
+								memcpy( (char*)pageData+sizeof(IndexHeader), (char*)copy+ (half*(sizeof(LeafEntry)+INT_SIZE)),remaining*(sizeof(LeafEntry)+INT_SIZE));
+									// get middle entry to copy up
+									void *middle = malloc(INT_SIZE);
+									memcpy( &middle, (char*)copy + (half*(sizeof(LeafEntry)+INT_SIZE)) + sizeof(LeafEntry), INT_SIZE);
+									 
+								ixHeader.left = leafPage;
+								ixHeader.right = oldRightSibling;
+								ixHeader.indexEntriesNumber = remaining;
+								ixHeader.freeSpaceOffset = sizeof(IndexHeader) + (remaining*(sizeof(LeafEntry)+INT_SIZE));
+								setIndexHeader(pageData, ixHeader);
+								if(ixfileHandle.appendPage(pageData))
+								{
+									free(pageData);
+									free(copy);
+									free(middle);
+									return IX_APPEND_FAILED;
+								}
+								free(copy);
+							// update oldRightSibling's left ptr
+							if( oldRightSibling == -1)
+								continue;
+							else
+							{
+								if(ixfileHandle.readPage(oldRightSibling,pageData))
+								{
+									free(pageData);
+									free(middle);
+									return FH_READ_FAILED;
+								}
+								ixHeader = getIndexHeader(pageData);
+								ixHeader.left = ixfileHeader.getNumberOfPages()-1;
+								setIndexHeader(pageData);
+								if(ixfileHandle.writePage(oldRightSibling,pageData))
+								{
+									free(pageData);
+									free(middle);
+									return FH_WRITE_FAILED;
+								}
+							}
+							// copy up middle entry to non-leaf node
+							if(ixfileHandle.readPage(ixHeader.parent, pageData))
+							{
+								free(pageData);
+								free(middle);
+								return FH_READ_FAILED;	  
+							}
+							if(split(ixfileHandle, attribute, rid, leafPage, pageData, size, middle))
+							{
+								free(pageData);
+								free(middle);
+								return BAD_INPUT;
+							}
+							free(pageData);
+							free(middle);
+							return SUCCESS;
+						}
+		            	break; 
+			    	}
+		            case(TypeReal):
+			    	{
+						dataEntry.size = REAL_SIZE;
+						
+			        	float nextReal;
+			        	float keyReal;
+			        	memcpy(&keyReal, key, REAL_SIZE);
+			        	memcpy(&nextReal, ((char*)pageData + offset), REAL_SIZE);
+						offset += REAL_SIZE;
+						         
+			        	if(i == 0 && keyReal < nextReal)
+			        	{
+							// copy entry then rest of entries if key is less than first search key value
+							memcpy( copy, &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)copy + sizeof(LeafEntry), keyVal, REAL_SIZE);
+							memcpy( (char*)copy + sizeof(LeafEntry) + REAL_SIZE, (char*)pageData + sizeof(IndexHeader), ixHeader.freeSpaceOffset-sizeof(IndexHeader));
+							inserted = true;
+						}
+			        	else if( keyReal < nextReal)
+						{
+							// copy all entries up to current entry if key is less than current search key value
+							// copy entry to be inserted
+							// copy all remaining entries
+							memcpy( copy, (char*)pageData + sizeof(IndexHeader), offset-sizeof(IndexHeader) - sizeof(LeafEntry) - REAL_SIZE;
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - sizeof(LeafEntry) - REAL_SIZE, &dataEntry, sizeof(LeafEntry);
+							memcpy( (char*)copy + offset - sizeof(IndexHeader) - REAL_SIZE, keyVal, REAL_SIZE);
+							memcpy( (char*)copy + offset - sizeof(IndexHeader), (char*)pageData + offset - sizeof(LeafEntry) - REAL_SIZE, ixHeader.freeSpaceOffset-offset+sizeof(LeafEntry)+INT_SIZE);
+							inserted = true;
+			        	}
+			        	else if(i == numEntries - 1 && keyReal >= nextReal)
+						{
+							// copy all entries
+							// then copy entry to be inserted
+							// if key is greater than or equal to last search key value entry
+							memcpy( copy, (char*)pageData + sizeof(IndexHeader), ixHeader.freeSpaceOffset-sizeof(IndexHeader));
+							memcpy( (char*)copy + ixHeader.freeSpaceOffset-sizeof(IndexHeader), &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)copy + ixHeader.freeSpaceOffset-sizeof(IndexHeader)+sizeof(LeafEntry), keyVal, REAL_SIZE);
+							inserted = true;
+						}
+						
+						if(inserted)
+						{
+							// copy half of the entries to leafPage
+							int half = floor((double)(numEntries+1)/2);
+							memcpy( (char*)pageData + sizeof(IndexHeader), (char*)copy, half*(sizeof(LeafEntry) + REAL_SIZE));
+							int oldRightSibling = ixHeader.right;
+							ixHeader.right = ixfileHandle.getNumberOfPages();
+							ixHeader.indexEntriesNumber = half;
+							ixHeader.freeSpaceOffset = sizeof(IndexHeader) + (half*(sizeof(LeafEntry)+REAL_SIZE));
+							setIndexHeader(pageData, ixHeader);
+							if(ixfileHandle.writePage(leafPage, pageData)
+							{
+								free(pageData);
+								free(copy);
+								return FH_WRITE_FAILED;
+							}
+							// append numEntries+1- half to new page
+							int remaining = numEntries+1-half;
+							memcpy( (char*)pageData+sizeof(IndexHeader), (char*)copy+ (half*(sizeof(LeafEntry)+REAL_SIZE)),remaining*(sizeof(LeafEntry)+REAL_SIZE));
+								// get middle entry to copy up
+								void *middle = malloc(REAL_SIZE);
+								memcpy( &middle, (char*)copy + (half*(sizeof(LeafEntry)+REAL_SIZE)) + sizeof(LeafEntry), REAL_SIZE);
+								 
+							ixHeader.left = leafPage;
+							ixHeader.right = oldRightSibling;
+							ixHeader.indexEntriesNumber = remaining;
+							ixHeader.freeSpaceOffset = sizeof(IndexHeader) + (remaining*(sizeof(LeafEntry)+REAL_SIZE));
+							setIndexHeader(pageData, ixHeader);
+							if(ixfileHandle.appendPage(pageData))
+							{
+								free(pageData);
+								free(copy);
+								free(middle);
+								return IX_APPEND_FAILED;
+							}
+							free(copy);
+							// update oldRightSibling's left ptr
+							if( oldRightSibling == -1)
+								continue;
+							else
+							{
+								if(ixfileHandle.readPage(oldRightSibling,pageData))
+								{
+									free(pageData);
+									free(middle);
+									return FH_READ_FAILED;
+								}
+								ixHeader = getIndexHeader(pageData);
+								ixHeader.left = ixfileHeader.getNumberOfPages()-1;
+								setIndexHeader(pageData);
+								if(ixfileHandle.writePage(oldRightSibling,pageData))
+								{
+									free(pageData);
+									free(middle);
+									return FH_WRITE_FAILED;
+								}
+							}
+							// copy up middle entry to non-leaf node
+							if(ixfileHandle.readPage(ixHeader.parent, pageData))
+							{
+								free(pageData);
+								free(middle);
+								return FH_READ_FAILED;	  
+							}
+							if(split(ixfileHandle, attribute, rid, leafPage, pageData, size, middle))
+							{
+								free(pageData);
+								free(middle);
+								return BAD_INPUT;
+							}
+							free(pageData);
+							free(middle);
+							return SUCCESS;
+						}
+		            	break; 
+		            }
+			    	case(TypeVarChar):
+			    	{ 
+						 // get key value
+						 int length;
+						 memcpy(&length, (char*)key, INT_SIZE);
+						 char* keyVarChar = (char*) malloc(length);
+						 memcpy(keyVarChar, (char*)key + INT_SIZE, length);
+								
+						 dataEntry.size = length;
+								
+						 // get current search key value
+						int nextLength = entry.size;
+						char* nextVarChar = (char*)malloc(nextLength);  
+						memcpy(nextVarChar, (char*) pageData + offset, nextLength);
+						offset += nextLength;
+					
+					    if(i == 0 && strcmp(keyVarChar, nextVarChar) < 0)
+					    {
+							// memmov all entries if key is less than first search key value   
+							memmove( (char*)pageData + sizeof(IndexHeader) + sizeof(LeafEntry) + length, (char*)pageData + sizeof(IndexHeader), ixHeader.freeSpaceOffset-sizeof(IndexHeader));
+							memcpy( (char*)pageData + sizeof(IndexHeader), &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)pageData + sizeof(IndexHeader) + sizeof(LeafEntry), keyVarChar, length);
+							inserted = true;
+						}
+				        else if( strcmp(keyVarChar, nextVarChar) < 0)
+						{
+							// memmove all entries at current entry if key is less than current search key value
+				        	memmove( (char*)pageData + offset - entry.size + length, (char*)pageData + offset - entry.size - sizeof(LeafEntry), ixHeader.freeSpaceOffset - offset + sizeof(LeafEntry) + entry.size);
+							memcpy( (char*)pageData + offset - entry.size - sizeof(LeafEntry), &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)pageData + offset - entry.size, keyVarChar, length);
+							inserted = true;
+			        	}
+			        	else if(i == numEntries - 1 && strcmp(keyVarChar, nextVarChar) >= 0)
+						{
+							// insert to end if key is greater than or equal to last search key value entry
+							memcpy( (char*)pageData + offset, &dataEntry, sizeof(LeafEntry));
+							memcpy( (char*)pageData + offset + sizeof(LeafEntry), keyVarChar, length);
+							inserted = true;
+						}
+						// prevent memory leaks
+						free(keyVarChar);
+						free(nextVarChar);
+						
+						if(inserted)
+						{
+							ixHeader.freeSpaceOffset += sizeof(LeafEntry) + length;
+							ixHeader.indexEntriesNumber += 1;
+							setIndexHeader(pageData, ixHeader);
+							if(ixfileHandle.writePage(leafPage, pageData))
+							{		
+								free(pageData);
+								free(pageData);
+								return IX_MALLOC_FAILED;
+							}
+							free(pageData);
+							free(keyVal);
+							return SUCCESS;
+						}           
+						break;
+					}
+					default:
+						break;
+				}
+			}
+	}
+*/
+	return SUCCESS;
 }
 

@@ -25,9 +25,9 @@ typedef struct IndexHeader
     uint16_t freeSpaceOffset;
     uint16_t indexEntriesNumber;
     bool isLeafPage;
-    uint32_t parent;
-    uint32_t left;
-    uint32_t right;
+    int parent;
+    int left;
+    int right;
 } IndexHeader;
 
 typedef struct NonLeafEntry{
@@ -85,7 +85,8 @@ class IndexManager {
 		// helpers for insert will free pageData for us
 	RC insertIntoLeafPage(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, uint32_t &leafPage, void *pageData);
 	RC insertIntoEmptyTree(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid, void *pageData);
-
+	RC split(IXFileHandle &ixfileHandle, const Attribute &attribute, const RID &rid, uint32_t leafPage, void *pageData, int size, void *keyVal);
+	
 	bool getIsLeafPage(IXFileHandle &ixfileHandle, uint32_t pageNum);
 	void printNonLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, const Attribute &attribute);
 	void printLeaf(IXFileHandle &ixfileHandle, uint32_t pageNum, int numSpaces, const Attribute &attribute);
