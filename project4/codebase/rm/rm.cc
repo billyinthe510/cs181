@@ -365,7 +365,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
         offset += INT_SIZE;
         attr.pos = pos;
 
-        iattrs.push_back(attr);
+        attrs.push_back(attr);
     }
     // Do cleanup
     rbfm_si.close();
@@ -383,7 +383,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
     // Fill up our result with the Attributes in sorted order
     for (auto attr : iattrs)
     {
-        attrs.push_back(attr.attr);
+        iattrs.push_back(attr.attr);
     }
 
     return SUCCESS;
@@ -513,8 +513,63 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
     if (rc)
         return rc;
 
-    // And get fileHandle
-    FileHandle fileHandle;
+    // Grab the table ID
+    int32_t id;
+    rc = getTableID(tableName, id);
+    if (rc)
+        return rc;
+
+    // Find entry with same table ID
+    // Use empty projection because we only care about RID
+    RBFM_ScanIterator rbfm_si;
+    vector<string> projection; // will initialize to file-name
+    void *value = &id;
+	FileHandle fileHandle;
+
+    // Get list of attribute file names from Index table
+    rc = rbfm->openFile(getFileName(INDEX_TABLE_NAME), fileHandle);
+    if (rc)
+        return rc;
+
+    // Find all of the index file entries whose table-id equal this table's ID
+    	projection.push_back(INDEX_COL_ATTRIBUTE_NAME);
+	rbfm->scan(fileHandle, indexDescriptor, INDEX_COL_TABLE_ID, EQ_OP, value, projection, rbfm_si);
+
+	void *attrFileName = malloc(sizeof(char) + INT_SIZE + INDEX_COL_FILE_NAME_SIZE);
+	IXFileHandle ixfileHandle;
+   
+	IndexManager *ix = IndexManager::instance();
+
+	RID attrRID;
+    while((rc = rbfm_si.getNextRecord(attrRID, attrFileName)) == SUCCESS)
+    {
+	// get attribute file name string
+	int len;
+	memcpy(&len, (char*)attrFileName + sizeof(char), INT_SIZE);
+	char *str = (char*) malloc(len + 1);
+	memcpy(str, (char*)attrFileName + INT_SIZE, len);
+
+	
+	for( int i=0; i< recordDesciptor.size(); i++)
+	{
+		void *oldValue = malloc(sizeof(char) + INT_SIZE + INDEX_COL_FILE_NAME_SIZE);
+		
+		if( strcmp( recordDesciptor[i].name.c_str(), str) == 0)
+		{
+			// get old attribute value
+			readAttribute( tableName, rid, recordDescriptor[i].name, oldValue);
+			 // get attribute index file handle
+   			ix->openFile( recordDescriptor[i].name, ixfileHandle); 
+			// delete old attribute value from index
+			ix->deleteEntry( ixfileHandle, recordDescriptor[i], (char*)oldValue + sizeof(char), rid);
+			ix->closeFile(ixfileHandle);
+		}
+		free(oldValue);
+	}
+    }
+	rbfm->close(fileHandle);
+
+    // rm updateRecord method
     rc = rbfm->openFile(getFileName(tableName), fileHandle);
     if (rc)
         return rc;
@@ -523,7 +578,50 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
     rc = rbfm->updateRecord(fileHandle, recordDescriptor, data, rid);
     rbfm->closeFile(fileHandle);
 
+    // Get list of attribute file names from Index table
+    rc = rbfm->openFile(getFileName(INDEX_TABLE_NAME), fileHandle);
+    if (rc)
+        return rc;
+
+    // Find all of the index file entries whose table-id equal this table's ID
+    	projection.push_back(INDEX_COL_ATTRIBUTE_NAME);
+	rbfm->scan(fileHandle, indexDescriptor, INDEX_COL_TABLE_ID, EQ_OP, value, projection, rbfm_si);
+
+    while((rc = rbfm_si.getNextRecord(attrRID, attrFileName)) == SUCCESS)
+    {
+	// get attribute file name string
+	int len;
+	memcpy(&len, (char*)attrFileName + sizeof(char), INT_SIZE);
+	char *str = (char*) malloc(len + 1);
+	memcpy(str, (char*)attrFileName + INT_SIZE, len);
+
+	
+	for( int i=0; i< recordDescriptor.size(); i++)
+	{
+		void *newValue = malloc(sizeof(char) + INT_SIZE + INDEX_COL_FILE_NAME_SIZE);
+		
+		if( strcmp( recordDescriptor[i].name.c_str(), str) == 0)
+		{
+			// get old attribute value
+			readAttribute( tableName, rid, recordDescriptor[i].name, newValue);
+			 // get attribute index file handle
+   			ix->openFile( recordDescriptor[i].name, ixfileHandle); 
+			// insert new attribute value into index
+        		ix->insertEntry( ixfileHandle, recordDescriptor[i], newValue, rid);
+I			ix->closeFile(ixfileHandle);
+		}
+		free(newValue);
+	}
+    }
+
+    if (rc != RBFM_EOF)
+        return rc;
+
+    rbfm->closeFile(fileHandle);
+    rbfm_si.close();
+		
     return rc;
+
 }
 
 RC RelationManager::readTuple(const string &tableName, const RID &rid, void *data)
