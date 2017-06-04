@@ -466,7 +466,7 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
 {
     RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
     RC rc;
-
+    
     // If this is a system table, we cannot modify it
     bool isSystem;
     rc = isSystemTable(isSystem, tableName);
@@ -474,23 +474,107 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
         return rc;
     if (isSystem)
         return RM_CANNOT_MOD_SYS_TBL;
-
+    
     // Get recordDescriptor
     vector<Attribute> recordDescriptor;
     rc = getAttributes(tableName, recordDescriptor);
     if (rc)
         return rc;
-
+    
     // And get fileHandle
     FileHandle fileHandle;
     rc = rbfm->openFile(getFileName(tableName), fileHandle);
     if (rc)
         return rc;
-
+    
+    // Read tuple (for deleting indices associated with tuple)
+    void *data = malloc(PAGE_SIZE);
+    rc = rbfm->readRecord(fileHandle, recordDescriptor, rid, data);
+    if (rc)
+        return rc;
+    
     // Let rbfm do all the work
     rc = rbfm->deleteRecord(fileHandle, recordDescriptor, rid);
     rbfm->closeFile(fileHandle);
-
+    
+    // Delete associated indices
+    IndexManager *ix = IndexManager::instance();
+    IXFileHandle ixFH;
+    string ixFilename;
+    
+    void *index = malloc(PAGE_SIZE);
+    int offset = 0;
+    
+    for(int i = 0; i < recordDescriptor.size(); i++)
+    {
+        switch(recordDescriptor[i].type)
+        {
+            case TypeInt:
+            {
+                memcpy(index, (char*)data + offset, INT_SIZE);
+                offset += INT_SIZE;
+                
+                ixFilename = recordDescriptor[i].name;
+                ix->openFile(ixFilename, ixFH);
+                if ((rc = ix->deleteEntry(ixFH, recordDescriptor[i], index, rid)) != 0)
+                {
+                    free(data);
+                    free(index);
+                    return rc;
+                }
+                rc = ix->closeFile(ixFH);
+                break;
+            }
+            case TypeReal:
+            {
+                memcpy(index, (char*)data + offset, REAL_SIZE);
+                offset += REAL_SIZE;
+                
+                ixFilename = recordDescriptor[i].name;
+                ix->openFile(ixFilename, ixFH);
+                if ((rc = ix->deleteEntry(ixFH, recordDescriptor[i], index, rid)) != 0)
+                {
+                    free(data);
+                    free(index);
+                    return rc;
+                }
+                rc = ix->closeFile(ixFH);
+                break;
+            }
+            case TypeVarChar:
+            {
+                u_int32_t varcharSize;
+                memcpy(&varcharSize, (char*) data + offset, VARCHAR_LENGTH_SIZE);
+                varcharSize += VARCHAR_LENGTH_SIZE;
+                memcpy(index, (char *)data + offset, varcharSize);
+                offset += varcharSize;
+                
+                ixFilename = recordDescriptor[i].name;
+                ix->openFile(ixFilename, ixFH);
+                if ((rc = ix->deleteEntry(ixFH, recordDescriptor[i], index, rid)) != 0)
+                {
+                    free(data);
+                    free(index);
+                    return rc;
+                }
+                rc = ix->closeFile(ixFH);
+                break;
+            }
+            default:
+                break;
+        }
+        /*ixFilename = recordDescriptor[i].name;
+         ix->openFile(ixFilename, ixFH);
+         if ((rc = ix->deleteEntry(ixFH, recordDescriptor[i], index, rid)) != 0)
+         {
+         free(data);
+         free(index);
+         return rc;
+         }
+         rc = ix->closeFile(ixFH);*/
+    }
+    free(data);
+    free(index);
     return rc;
 }
 
