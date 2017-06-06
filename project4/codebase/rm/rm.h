@@ -76,7 +76,22 @@ private:
   FileHandle fileHandle;
 };
 
-
+class RM_IndexScanIterator {
+public:
+RM_IndexScanIterator();  
+// Constructor
+~RM_IndexScanIterator(); 
+// Destructor
+// "key" follows the same format as in IndexManager::insertEntry()
+RC getNextEntry(RID &rid, void *key);  
+// Get next matching entry
+RC close();             
+// Terminate index scan
+    friend class RelationManager;   
+private:
+    IX_ScanIterator ix_iter;
+    IXFileHandle ixfileHandle;
+};
 // Relation Manager
 class RelationManager
 {
@@ -119,6 +134,10 @@ public:
       const void *value,                    // used in the comparison
       const vector<string> &attributeNames, // a list of projected attributes
       RM_ScanIterator &rm_ScanIterator);
+
+  RC indexScan(const string &tableName, const string &attributeName,
+  const void *lowKey, const void *highKey, bool lowKeyInclusive, bool 
+  highKeyInclusive, RM_IndexScanIterator &rm_IndexScanIterator);
 
 protected:
   RelationManager();
