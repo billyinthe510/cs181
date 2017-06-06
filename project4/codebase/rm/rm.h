@@ -78,9 +78,9 @@ private:
 
 class RM_IndexScanIterator {
 public:
-RM_IndexScanIterator();  
+RM_IndexScanIterator(){};  
 // Constructor
-~RM_IndexScanIterator(); 
+~RM_IndexScanIterator(){}; 
 // Destructor
 // "key" follows the same format as in IndexManager::insertEntry()
 RC getNextEntry(RID &rid, void *key);  
