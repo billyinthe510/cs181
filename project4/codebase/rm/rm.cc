@@ -551,96 +551,81 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
     if (rc)
         return rc;
     
-    // Read tuple (for deleting indices associated with tuple)
-    void *data = malloc(PAGE_SIZE);
-    rc = rbfm->readRecord(fileHandle, recordDescriptor, rid, data);
-    if (rc)
-        return rc;
-    
+    // Get tableID from tableName
+    int32_t id;
+    rc = getTableID(tableName, id);
+    if(rc)
+	return rc;
+
+   // Open INDEX_TABLE_NAME
+   FileHandle fileHandle2;
+   rc = rbfm->openFile(INDEX_TABLE_NAME, fileHandle2);
+   if(rc)
+	return rc;
+
+    // Scan INDEX_TABLE_NAME for associated index-file names
+    RBFM_ScanIterator rbfm_si;
+    vector<string> projection;
+    projection.push_back(INDEX_COL_FILE_NAME);
+    void *value = &id;
+    RID scanRID;
+
+    rc = rbfm->scan(fileHandle2, indexDescriptor, INDEX_COL_TABLE_ID, EQ_OP, value, projection, rbfm_si);
+    if(rc)
+	return rc;
+
+    // For each index file associated with given table:
+    //     deleteEntry of attribute corresponding to record
+    IndexManager *ix = IndexManager::instance();
+    IXFileHandle ixfileHandle;
+    void *newData = malloc(INT_SIZE + INDEX_COL_FILE_NAME_SIZE);
+    void *key = malloc(INT_SIZE + INDEX_COL_FILE_NAME_SIZE);
+
+    while(rbfm_si.getNextRecord(scanRID, newData) != RBFM_EOF)
+    {
+	// get current index file name
+	int len;
+	memcpy(&len, (char*)newData + sizeof(char), INT_SIZE);
+	char *indexFileName = malloc(len+1);
+	memcpy(&indexFileName, (char*)newData + sizeof(char) + INT_SIZE, len);
+	indexFileName[len] = '\0';
+
+	// get current attribute name
+	string attribute = (string)indexFileName;
+	int size = attribute.size();
+	attribute = attribute.substr( tableName.size()+2, size-3);
+
+	// match attribute name to recordDescriptor's Attribute
+	for(int i=0; i<recordDescriptor.size(); i++)
+	{
+	    if( strcmp( recordDescriptor[i].name.c_str(), attribute.c_str()) == 0)
+	    {
+		// get the attribute key to be deleted from index
+		rc = readattribute(fileHandle, recordDescriptor, rid, attribute, key);
+		if(rc)
+		{
+		    free(newData);
+		    free(key);
+		    return rc;
+		}
+		// delete entry from index
+		ix->openFile((string)indexFileName, ixfileHandle);
+		rc = deleteEntry(ixfileHandle, recordDescriptor[i], key, rid);
+		ix->closeFile(ixfileHandle);
+		if(rc)
+		{
+		    free(newData);
+		    free(key);
+		    return rc;
+		}
+	    }
+	}
+    }
+    rbfm->closeFile(fileHandle2);
+
     // Let rbfm do all the work
     rc = rbfm->deleteRecord(fileHandle, recordDescriptor, rid);
     rbfm->closeFile(fileHandle);
-    
-    // Delete associated indices
-    IndexManager *ix = IndexManager::instance();
-    IXFileHandle ixFH;
-    string ixFilename;
-    
-    void *index = malloc(PAGE_SIZE);
-    int offset = 0;
-    
-    for(int i = 0; i < recordDescriptor.size(); i++)
-    {
-        cout << "I: " << i << endl;
-        switch(recordDescriptor[i].type)
-        {
-            case TypeInt:
-            {
-                memcpy(index, (char*)data + offset + sizeof(char), INT_SIZE);
-                offset += INT_SIZE;
-                
-                ixFilename = recordDescriptor[i].name;
-                ix->openFile(ixFilename, ixFH);
-                if ((rc = ix->deleteEntry(ixFH, recordDescriptor[i], index, rid)) != 0)
-                {
-                    free(data);
-                    free(index);
-                    return rc;
-                }
-                rc = ix->closeFile(ixFH);
-                break;
-            }
-            case TypeReal:
-            {
-                memcpy(index, (char*)data + offset + sizeof(char), REAL_SIZE);
-                offset += REAL_SIZE;
-                
-                ixFilename = recordDescriptor[i].name;
-                ix->openFile(ixFilename, ixFH);
-                if ((rc = ix->deleteEntry(ixFH, recordDescriptor[i], index, rid)) != 0)
-                {
-                    free(data);
-                    free(index);
-                    return rc;
-                }
-                rc = ix->closeFile(ixFH);
-                break;
-            }
-            case TypeVarChar:
-            {
-                u_int32_t varcharSize;
-                memcpy(&varcharSize, (char*) data + offset + sizeof(char), VARCHAR_LENGTH_SIZE);
-                offset += VARCHAR_LENGTH_SIZE;
-                memcpy(index, (char *)data + offset + sizeof(char), varcharSize);
-                offset += varcharSize;
-                
-                ixFilename = recordDescriptor[i].name;
-                ix->openFile(ixFilename, ixFH);
-                if ((rc = ix->deleteEntry(ixFH, recordDescriptor[i], index, rid)) != 0)
-                {
-                    free(data);
-                    free(index);
-                    return rc;
-                }
-                rc = ix->closeFile(ixFH);
-                break;
-            }
-            default:
-                break;
-        }
-        /*ixFilename = recordDescriptor[i].name;
-         ix->openFile(ixFilename, ixFH);
-         if ((rc = ix->deleteEntry(ixFH, recordDescriptor[i], index, rid)) != 0)
-         {
-         free(data);
-         free(index);
-         return rc;
-         }
-         rc = ix->closeFile(ixFH);*/
-    }
-    free(data);
-    free(index);
-    return rc;
 }
 
 RC RelationManager::updateTuple(const string &tableName, const void *data, const RID &rid)
