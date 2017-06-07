@@ -61,22 +61,23 @@ rm->printTuple(id, data);
     rc = rm->printTuple(attrs, tuple);
     cout << endl;
     ix->insertEntry(ixfileHandle, ages, key, readRid);
-    //rc = rm->insertTuple(tableName, tuple, rid);
+    rc = rm->insertTuple(tableName, tuple, rid);
     assert(rc == success && "RelationManager::insertTuple() should not fail.");
 
     // Given the rid, read the tuple from table
-    //rc = rm->readTuple(tableName, rid, returnedData);
-    //assert(rc == success && "RelationManager::readTuple() should not fail.");
+    rc = rm->readTuple(tableName, rid, returnedData);
+    assert(rc == success && "RelationManager::readTuple() should not fail.");
 
     cout << "The returned tuple:" << endl;
-    //rc = rm->printTuple(attrs, returnedData);
+    rc = rm->printTuple(attrs, returnedData);
     cout << endl;
  
 prepareTuple(attrs.size(), nullsIndicator, nameLength, name, age + 23, height, salary, tuple, &tupleSize);
 rm->updateTuple(tableName, tuple, rid);   
 ix->printBtree(ixfileHandle, attrs[1] );
-rid.slotNum = 2;
+rid.slotNum--;
 rm->deleteTuple(tableName, rid);
+ix->printBtree(ixfileHandle, attrs[1] );
     rm->destroyIndex(tableName, attrs[1].name);
     // Compare whether the two memory blocks are the same
     if(memcmp(tuple, returnedData, tupleSize) == 0)

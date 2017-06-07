@@ -216,23 +216,6 @@ class Project : public Iterator {
         void getAttributes(vector<Attribute> &attrs) const{};
 };
 
-class BNLJoin : public Iterator {
-    // Block nested-loop join operator
-    public:
-        BNLJoin(Iterator *leftIn,            // Iterator of input R
-               TableScan *rightIn,           // TableScan Iterator of input S
-               const Condition &condition,   // Join condition
-               const unsigned numPages       // # of pages that can be loaded into memory,
-			                                 //   i.e., memory block size (decided by the optimizer)
-        ){};
-        ~BNLJoin(){};
-
-        RC getNextTuple(void *data){return QE_EOF;};
-        // For attribute in vector<Attribute>, name it as rel.attr
-        void getAttributes(vector<Attribute> &attrs) const{};
-};
-
-
 class INLJoin : public Iterator {
     // Index nested-loop join operator
     public:
@@ -245,22 +228,6 @@ class INLJoin : public Iterator {
         RC getNextTuple(void *data){return QE_EOF;};
         // For attribute in vector<Attribute>, name it as rel.attr
         void getAttributes(vector<Attribute> &attrs) const{};
-};
-
-// Optional for everyone. 10 extra-credit points
-class GHJoin : public Iterator {
-    // Grace hash join operator
-    public:
-      GHJoin(Iterator *leftIn,               // Iterator of input R
-            Iterator *rightIn,               // Iterator of input S
-            const Condition &condition,      // Join condition (CompOp is always EQ)
-            const unsigned numPartitions     // # of partitions for each relation (decided by the optimizer)
-      ){};
-      ~GHJoin(){};
-
-      RC getNextTuple(void *data){return QE_EOF;};
-      // For attribute in vector<Attribute>, name it as rel.attr
-      void getAttributes(vector<Attribute> &attrs) const{};
 };
 
 class Aggregate : public Iterator {

@@ -266,8 +266,11 @@ RC RelationManager::createIndex(const string &tableName, const string &attribute
             case TypeVarChar:
             
         }*/
-        ix->insertEntry(ixfileHandle, recordDescriptor[attrNum], data + 1, rid);
+        rc = ix->insertEntry(ixfileHandle, recordDescriptor[attrNum], data + 1, rid);
+        if(rc)
+            return rc;
 	}
+    free(data);
     if(rc)
         return rc;
     return SUCCESS;
@@ -568,13 +571,11 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
     
     for(int i = 0; i < recordDescriptor.size(); i++)
     {
+        cout << "I: " << i << endl;
         switch(recordDescriptor[i].type)
         {
             case TypeInt:
             {
-                int j;
-                memcpy(&j, (char*)data + offset + sizeof(char), INT_SIZE);
-                cout << "J: " << j << endl;
                 memcpy(index, (char*)data + offset + sizeof(char), INT_SIZE);
                 offset += INT_SIZE;
                 
@@ -591,9 +592,6 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
             }
             case TypeReal:
             {
-                int j;
-                memcpy(&j, (char*)data + offset + sizeof(char), INT_SIZE);
-                cout << "J: " << j << endl;
                 memcpy(index, (char*)data + offset + sizeof(char), REAL_SIZE);
                 offset += REAL_SIZE;
                 
@@ -611,9 +609,9 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
             case TypeVarChar:
             {
                 u_int32_t varcharSize;
-                memcpy(&varcharSize, (char*) data + offset, VARCHAR_LENGTH_SIZE);
-                varcharSize += VARCHAR_LENGTH_SIZE;
-                memcpy(index, (char *)data + offset, varcharSize);
+                memcpy(&varcharSize, (char*) data + offset + sizeof(char), VARCHAR_LENGTH_SIZE);
+                offset += VARCHAR_LENGTH_SIZE;
+                memcpy(index, (char *)data + offset + sizeof(char), varcharSize);
                 offset += varcharSize;
                 
                 ixFilename = recordDescriptor[i].name;

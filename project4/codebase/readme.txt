@@ -1,19 +1,20 @@
-- Modify the "CODEROOT" variable in makefile.inc to point to the root of your codebase. Usually, this is not necessary.
+- Modify the "CODEROOT" variable in makefile.inc to point to the root of your code base if necessary.
 
-- Copy the implementation of rbf, ix, and rm to folder, "rbf", "ix", and "rm", respectively.
-  Don't forget to include RM extension parts in the rm.h file after you copy your code into "rm" folder.
+- Integrate your own implementation of rbf to folder, "rbf".
   
-- Implement the extension of Relation Manager (RM) to coordinate data files and the associated indices of the data files.
+- Implement the Index Manager (IX):
 
-- Also, implement Query Engine (QE)
-
-   Go to folder "qe" and type in:
+   Go to folder "ix" and type in:
 
     make clean
     make
-    ./qetest_01
+    ./ixtest_01
 
-   The program should work. But it does nothing until you implement the extension of RM and QE.
+   The program should work.  But it will fail. 
+   You are supposed to implement the API of the index manager defined in ix.h and pfm.h
 
-- By default you should not change those classes defined in rm/rm.h and qe/qe.h. If you think some changes are really necessary, please contact us first.
+   Refer to the each test case for detail.
+
+- By default you should not change those functions of the IndexManager and IX_ScanIterator class defined in ix/ix.h. 
+  If you think some changes are really necessary, please contact us first.
 

@@ -59,7 +59,21 @@ typedef struct IndexedAttr
     int32_t pos;
     Attribute attr;
 } IndexedAttr;
-
+class RM_IndexScanIterator {
+public:
+  RM_IndexScanIterator() {};  	// Constructor
+  ~RM_IndexScanIterator() {};
+// Destructor
+// "key" follows the same format as in IndexManager::insertEntry()
+RC getNextEntry(RID &rid, void *key);  
+// Get next matching entry
+RC close();             
+// Terminate index scan
+    friend class RelationManager;   
+private:
+    IX_ScanIterator ix_iter;
+    IXFileHandle ixfileHandle;
+};
 // RM_ScanIterator is an iteratr to go through tuples
 class RM_ScanIterator {
 public:
@@ -76,22 +90,7 @@ private:
   FileHandle fileHandle;
 };
 
-class RM_IndexScanIterator {
-public:
-RM_IndexScanIterator(){};  
-// Constructor
-~RM_IndexScanIterator(){}; 
-// Destructor
-// "key" follows the same format as in IndexManager::insertEntry()
-RC getNextEntry(RID &rid, void *key);  
-// Get next matching entry
-RC close();             
-// Terminate index scan
-    friend class RelationManager;   
-private:
-    IX_ScanIterator ix_iter;
-    IXFileHandle ixfileHandle;
-};
+
 // Relation Manager
 class RelationManager
 {

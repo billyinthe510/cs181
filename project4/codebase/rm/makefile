@@ -57,7 +57,8 @@ rmtest_extra_2: rmtest_extra_2.o librm.a $(CODEROOT)/rbf/librbf.a $(CODEROOT)/ix
 .PHONY: $(CODEROOT)/rbf/librbf.a
 $(CODEROOT)/rbf/librbf.a:
 	$(MAKE) -C $(CODEROOT)/rbf librbf.a
-$(CODEROOT)/rbf/libix.a:
+.PHONY: $(CODEROOT)/ix/libix.a
+$(CODEROOT)/ix/libix.a:
 	$(MAKE) -C $(CODEROOT)/ix libix.a
 
 .PHONY: clean
