@@ -586,7 +586,7 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
 	// get current index file name
 	int len;
 	memcpy(&len, (char*)newData + sizeof(char), INT_SIZE);
-	char *indexFileName = malloc(len+1);
+	char *indexFileName = (char*)malloc(len+1);
 	memcpy(&indexFileName, (char*)newData + sizeof(char) + INT_SIZE, len);
 	indexFileName[len] = '\0';
 
@@ -596,12 +596,12 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
 	attribute = attribute.substr( tableName.size()+2, size-3);
 
 	// match attribute name to recordDescriptor's Attribute
-	for(int i=0; i<recordDescriptor.size(); i++)
+	for(unsigned i=0; i<recordDescriptor.size(); i++)
 	{
 	    if( strcmp( recordDescriptor[i].name.c_str(), attribute.c_str()) == 0)
 	    {
 		// get the attribute key to be deleted from index
-		rc = readattribute(fileHandle, recordDescriptor, rid, attribute, key);
+		rc = rbfm->readAttribute(fileHandle, recordDescriptor, rid, attribute, key);
 		if(rc)
 		{
 		    free(newData);
@@ -610,7 +610,7 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
 		}
 		// delete entry from index
 		ix->openFile((string)indexFileName, ixfileHandle);
-		rc = deleteEntry(ixfileHandle, recordDescriptor[i], key, rid);
+		rc = ix->deleteEntry(ixfileHandle, recordDescriptor[i], key, rid);
 		ix->closeFile(ixfileHandle);
 		if(rc)
 		{
