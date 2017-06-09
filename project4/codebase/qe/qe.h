@@ -7,6 +7,16 @@
 #include "../rm/rm.h"
 #include "../ix/ix.h"
 
+//delete later
+#include <cstring>
+#include <string>
+#include <fstream>
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+#include <cmath>
 #define QE_EOF (-1)  // end of the index scan
 
 using namespace std;
@@ -193,41 +203,48 @@ class IndexScan : public Iterator
 class Filter : public Iterator {
     // Filter operator
     public:
+		Condition con;
+		Iterator *in;
         Filter(Iterator *input,               // Iterator of input R
                const Condition &condition     // Selection condition
         );
         ~Filter(){};
 
-        RC getNextTuple(void *data) {return QE_EOF;};
+        RC getNextTuple(void *data);
         // For attribute in vector<Attribute>, name it as rel.attr
-        void getAttributes(vector<Attribute> &attrs) const{};
+        void getAttributes(vector<Attribute> &attrs) const;
 };
 
 
 class Project : public Iterator {
     // Projection operator
     public:
+		Iterator *in;
+		vector<string> names;
         Project(Iterator *input,                    // Iterator of input R
-              const vector<string> &attrNames){};   // vector containing attribute names
+              const vector<string> &attrNames);   // vector containing attribute names
         ~Project(){};
 
-        RC getNextTuple(void *data) {return QE_EOF;};
+        RC getNextTuple(void *data);
         // For attribute in vector<Attribute>, name it as rel.attr
-        void getAttributes(vector<Attribute> &attrs) const{};
+        void getAttributes(vector<Attribute> &attrs) const;
 };
 
 class INLJoin : public Iterator {
     // Index nested-loop join operator
     public:
+		Iterator *in;
+		IndexScan *idxIn;
+		Condition con;
         INLJoin(Iterator *leftIn,           // Iterator of input R
                IndexScan *rightIn,          // IndexScan Iterator of input S
                const Condition &condition   // Join condition
-        ){};
+        );
         ~INLJoin(){};
 
-        RC getNextTuple(void *data){return QE_EOF;};
+        RC getNextTuple(void *data);
         // For attribute in vector<Attribute>, name it as rel.attr
-        void getAttributes(vector<Attribute> &attrs) const{};
+        void getAttributes(vector<Attribute> &attrs) const;
 };
 
 class Aggregate : public Iterator {

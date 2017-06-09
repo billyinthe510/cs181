@@ -172,7 +172,7 @@ private:
 
   RC isSystemTable(bool &system, const string &tableName);
   
-
+  string  getIndexName(const string &tableName, const string &attributeName);
 
   // Utility functions for converting single values to/from api format
   // Useful when using ScanIterators
