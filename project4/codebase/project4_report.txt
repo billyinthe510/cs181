@@ -1,7 +1,8 @@
 1. Basic information
-Team number (e.g., 01) : 
-#1 Student Name :
-#2 Student Name : 
+Team number (e.g., 01) : 26
+#1 Student Name : Francis Cruz
+#2 Student Name : Charissa Mamuyac
+#3 Student Name : Billy Lai
 
 
 2. Catalog information about Index
@@ -15,7 +16,7 @@ attributeName - the attribute the index was made on.
 
 3. Index Nested-Loop Join
 - Describe how your Index Nested-Loop Join works.
-It uses 2 while loops where the first while loop is the outer relation. For each tuple in the outer relation, it gets the length of the tuple to be used to copy the tuple later, and the lhsAttribute the Condition parameter asks for. Then for each tuple in the inner relation, get the length of each tuple and the rhsAttribute and the value of it. Then compare the lhsAttribute and the RhsAttribute to determine if the tuple satisfies Condition. If it does, a boolean is marked true so that the joined tuple can be returned. The 2 tuples are copied by using their lengths with the outer relation coming before the inner relation. Then the inner iterator is reset to start from the beginning. 
+It uses 2 while loops where the first while loop is the outer relation. For each tuple in the outer relation, it gets the length of the tuple to be used to copy the tuple later, and the lhsAttribute the Condition parameter asks for. Then for each tuple in the inner relation, get the length of each tuple and the rhsAttribute and the value of it. Then compare the lhsAttribute and the RhsAttribute to determine if the tuple satisfies Condition. If it does, a boolean is marked true so that the joined tuple can be returned. The two tuples are copied by using their lengths with the outer relation coming before the inner relation. Then the inner iterator is reset to start from the beginning. 
 
 4. Implementation Detail
 - Have you added your own source file (.cc or .h)?
