@@ -42,7 +42,7 @@ RC Filter::getNextTuple(void *data)
 						//cout <<"val: " << val << endl;
 						if(con.bRhsIsAttr == true)
 						{
-							
+							//return QE_BAD_COND;
 						}
 						else
 						{

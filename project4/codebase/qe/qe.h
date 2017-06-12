@@ -18,7 +18,7 @@
 #include <cstring>
 #include <cmath>
 #define QE_EOF (-1)  // end of the index scan
-
+#define QE_BAD_COND
 using namespace std;
 
 typedef enum{ MIN=0, MAX, COUNT, SUM, AVG } AggregateOp;

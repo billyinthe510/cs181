@@ -270,6 +270,9 @@ RC RelationManager::createIndex(const string &tableName, const string &attribute
         ix->insertEntry(ixfileHandle, recordDescriptor[attrNum], data + 1, rid);
 	}
     free(data);
+    ix->closeFile(ixfileHandle);
+    rbfm_si.close();
+    rbfm->closeFile(fileHandle);
     if(rc)
         return rc;
     return SUCCESS;

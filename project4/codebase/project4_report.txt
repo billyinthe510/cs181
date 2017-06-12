@@ -1,24 +1,38 @@
 1. Basic information
 Team number (e.g., 01) : 
-#1 Student Name :  
+#1 Student Name :
 #2 Student Name : 
 
 
 2. Catalog information about Index
 - Show your catalog information about an index (table, column, etc.). 
-
+Catalog Index file name: Index.t
+Contains 3 fields, (int) table-id, (varchar) the tableName, (varchar) the attributeName the index is on
+Index files are named tableName-attributeName.ix so that they are easily uniquely identifiable when just looking for files in programs like files. Table-id could have been used to also identify them but would not be as helpful when just looking for the file. 
+table-id - used to identify the table it is associated with
+tableName - used to name the Index file 
+attributeName - the attribute the index was made on. 
 
 3. Index Nested-Loop Join
 - Describe how your Index Nested-Loop Join works.
-
+It uses 2 while loops where the first while loop is the outer relation. For each tuple in the outer relation, it gets the length of the tuple to be used to copy the tuple later, and the lhsAttribute the Condition parameter asks for. Then for each tuple in the inner relation, get the length of each tuple and the rhsAttribute and the value of it. Then compare the lhsAttribute and the RhsAttribute to determine if the tuple satisfies Condition. If it does, a boolean is marked true so that the joined tuple can be returned. The 2 tuples are copied by using their lengths with the outer relation coming before the inner relation. Then the inner iterator is reset to start from the beginning. 
 
 4. Implementation Detail
 - Have you added your own source file (.cc or .h)?
-
+No
 - Have you implemented any optional features? Then, describe them here.
-
+No
 - Other implementation details:
+In RM: added a couple helper functions createIndexDescriptor and prepareIndexDataRecord to help create the catalog file Index.t. 
+Updated in RM: createCatalog, deleteTuple, insertTuple, updateTuple to modify indexes associated with the table if there are any. createCatalog creates a new catalog table Index.t and also updates the Tables and Columns catalog. 
+Added to RM: createIndex, destroyIndex. CreateIndex creates an index on an attribute, updates the Index.t catalog file, and inserts the attribute's data that was in the table before it was created. destroyIndex removes the index file and deletes it from the catalog. 
+Makefile: Edited the makefile to compile to use ix functions inside of RM. 
+In QE:
+Filter: Gave it Condition and Iterator members to store the input and condition it was given. getNextTuple uses the given Iterators getNextTuple to find the next tuple that meets the given condition. If the condition given has a bRhsAttribute = true, no tuples should be returned since Filter does not do joins and only returns Tuples from the Input that meet the condition. getAttributes returns the input's attributes.
+Project: Gave it a vector<strings> and Iterator members to store the input and the desired attributes as output. getNextTuple uses the given Iterators getNextTuple and takes that tuple and takes out the desired attributes and outputs them in data in the order of the given vector<strings> attrNames. getAttributes returns only the attributes in the given attrNames. 
+INLJoin: Has a Condition, Iterator, and Index scan members to store the inputs. It uses leftIn as the outer relation and uses leftIn's getNextTuple. For each of these tuples it gets the length of the tuple and finds the attribute needed for the join condition and then it compares to each tuple of the rightIn which gets the length of its own tuples and the desired Rhs attribute and its value. Then it does the comparisions between the Lhs attribute, the attribute value from leftIn, and the Rhs attribute from rightIn, and if the leftIn satisfies the condition, the two tuples are merged with the left attributes coming first and then the right attribute into 1 tuple and returned as the output and the inner relation has its iterator reset. getAttributes returns the leftIn attributes 
 
+ 
 
 5. Other (optional)
 - Freely use this section to tell us about things that are related to Project 4, but not related to the other sections (optional)
